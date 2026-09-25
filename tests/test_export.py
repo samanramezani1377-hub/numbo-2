@@ -36,8 +36,8 @@ def test_multi_value_fields_are_exported_to_separate_columns():
     assert result.loc[0, "email_1"] == "one@example.com"
     assert result.loc[0, "email_2"] == "two@example.com"
 
-    assert result.loc[0, "technology_1"] == "WordPress(0.95)"
-    assert result.loc[0, "technology_2"] == "WooCommerce(1.0)"
+    assert result.loc[0, "technology_1"] == "WordPress"
+    assert result.loc[0, "technology_2"] == "WooCommerce"
 
     assert result.loc[0, "social_telegram"] == "https://t.me/example"
     assert result.loc[0, "social_instagram"] == "https://instagram.com/example"
@@ -114,3 +114,16 @@ def test_aggregate_contacts_merges_pages_into_one_site():
     assert "WooCommerce(1.0)" in row["technologies"]
     assert "telegram" in row["socials"]
     assert "contact" in row["source_url"]
+
+
+def test_technology_columns_keep_the_same_meaning_across_rows():
+    df = pd.DataFrame([
+        {"domain": "a.com", "technologies": "jQuery"},
+        {"domain": "b.com", "technologies": "WordPress"},
+        {"domain": "c.com", "technologies": "jQuery; WordPress"},
+    ])
+
+    result = prepare_export_dataframe(df)
+
+    assert list(result["technology_1"]) == ["", "WordPress", "WordPress"]
+    assert list(result["technology_2"]) == ["jQuery", "", "jQuery"]
