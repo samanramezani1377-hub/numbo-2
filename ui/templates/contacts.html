@@ -43,13 +43,11 @@
             <td class="p-3 font-mono text-xs">{{ ', '.join(row['mobile_phones']) if row['mobile_phones'] else '-' }}</td><td class="p-3 font-mono text-xs">{{ ', '.join(row['landline_phones']) if row['landline_phones'] else '-' }}</td><td class="p-3 text-xs">{{ ', '.join(row['emails']) if row['emails'] else '-' }}</td>
             <td class="p-3">{{ row['city'] or '-' }}</td><td class="p-3">{{ row['category'] or '-' }}</td>
             <td class="p-3">
-              {% set technologies = (row['technologies'] or '').split(';') %}
               <div class="flex flex-wrap gap-1.5 max-w-md">
-                {% for technology in technologies %}
-                  {% set technology = technology.strip() %}
+                {% for technology in row['technologies'] %}
                   {% if technology %}<span class="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 text-xs font-medium whitespace-nowrap">{{ technology }}</span>{% endif %}
                 {% endfor %}
-                {% if not (row['technologies'] or '').strip() %}<span class="text-gray-400">-</span>{% endif %}
+                {% if not row['technologies'] %}<span class="text-gray-400">-</span>{% endif %}
               </div>
             </td>
             <td class="p-3 text-xs text-gray-400 whitespace-nowrap">{{ row['crawled_at'][:16] if row['crawled_at'] else '-' }}</td>
