@@ -204,10 +204,22 @@ class ContactSpider(scrapy.Spider):
         city = detect_city(text)
         category = detect_category(text, domain)
         business = extract_business_name(response, domain)
+        address = extract_address(response, text)
         socials = extract_socials(response)
 
         evidence = {
             "page": response.url,
+            "field_sources": {
+                "phones": [response.url] if phones else [],
+                "emails": [response.url] if emails else [],
+                "address": [response.url] if address else [],
+                "business_name": [response.url] if business else [],
+                "city": [response.url] if city else [],
+                "category": [response.url] if category else [],
+                "socials": [response.url] if socials else [],
+                "technologies": [response.url] if technologies else [],
+            },
+            "address_detected": bool(address),
             "tel_links": len(tel_phones),
             "mailto_links": len(response.css('a[href^="mailto:"]::attr(href)').getall()),
             "socials": sorted(socials),
@@ -219,7 +231,7 @@ class ContactSpider(scrapy.Spider):
         if socials: quality += 0.10
         if technologies: quality += 0.10
         if business and business != domain: quality += 0.10
-        if city: quality += 0.10
+        if city: quality += 0.10\n        if address: quality += 0.10
 
         if phones or emails or technologies or socials:
             yield ContactItem(
@@ -228,7 +240,7 @@ class ContactSpider(scrapy.Spider):
                 title=title,
                 phones=phones,
                 emails=emails,
-                address=None,
+                address=address,
                 business_name=business,
                 category=category,
                 city=city,
