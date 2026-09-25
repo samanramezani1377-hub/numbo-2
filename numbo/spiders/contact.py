@@ -14,7 +14,7 @@ from numbo.config import load as load_config
 
 class ContactSpider(scrapy.Spider):
     name = "contact"
-    custom_settings = {"DEPTH_LIMIT": 4}
+    custom_settings = {"DEPTH_LIMIT": 4, "NUMBO_PAGE_BUDGET": 20}
 
     IMPORTANT_PATHS = ("contact", "contact-us", "about", "about-us", "تماس", "درباره", "tamas")
     SKIP_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
@@ -25,7 +25,9 @@ class ContactSpider(scrapy.Spider):
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.seeds_file = seeds_file
+        self.page_budget = max(1, int(kwargs.pop("page_budget", self.settings.getint("NUMBO_PAGE_BUDGET", 20))))
         self.start_urls, self.allowed_domains = [], []
+        self.site_pages = {}
         self.allowed_tlds = [t.lower().strip() for t in
                              (load_config().get("allowed_tlds") or []) if str(t).strip()]
         if os.path.exists(seeds_file):
@@ -44,6 +46,7 @@ class ContactSpider(scrapy.Spider):
                         self.start_urls.append(line)
                     if domain not in self.allowed_domains:
                         self.allowed_domains.append(domain)
+                    self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
         if not self.start_urls:
             self.logger.warning("No valid seeds found in %s (after TLD filter).", seeds_file)
 
@@ -55,11 +58,19 @@ class ContactSpider(scrapy.Spider):
 
     def start_requests(self):
         for seed in self.start_urls:
-            yield scrapy.Request(seed, callback=self.parse, priority=50)
+            yield scrapy.Request(seed, callback=self.parse, priority=50, meta={"numbo_site": self._site_key(seed)})
             parsed = urlparse(seed)
             for path in ("/robots.txt", "/sitemap.xml", "/sitemap_index.xml"):
-                yield scrapy.Request(urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")),
-                                     callback=self.parse_aux, priority=40, dont_filter=False)
+                yield scrapy.Request(
+                    urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")),
+                    callback=self.parse_aux,
+                    priority=40,
+                    dont_filter=False,
+                    meta={"numbo_site": self._site_key(seed), "numbo_aux": True},
+                )
+
+    def _site_key(self, url):
+        return (urlparse(url).hostname or "").lower().removeprefix("www.")
 
     def _canonical_url(self, url):
         url, _ = urldefrag(url)
@@ -90,20 +101,49 @@ class ContactSpider(scrapy.Spider):
                 seen.add(full)
                 yield full
 
+    def _reserve_page(self, url):
+        domain = self._site_key(url)
+        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+        if url in state["scheduled"]:
+            return False
+        if state["count"] + len(state["scheduled"]) >= self.page_budget:
+            return False
+        state["scheduled"].add(url)
+        return True
+
+    def _request_page(self, url, priority=0, meta=None):
+        if not self._reserve_page(url):
+            return None
+        request_meta = dict(meta or {})
+        request_meta["numbo_site"] = self._site_key(url)
+        return scrapy.Request(url, callback=self.parse, priority=priority, meta=request_meta)
+
     def parse_aux(self, response):
         ctype = (response.headers.get("Content-Type") or b"").decode("latin1").lower()
         body = response.text or ""
         if response.url.lower().endswith((".xml", "sitemap.xml", "sitemap_index.xml")) or "xml" in ctype:
-            for loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", body, flags=re.I | re.S):
+            for loc in re.findall(r"<loc>s*(.*?)s*</loc>", body, flags=re.I | re.S):
                 loc = self._canonical_url(loc.strip())
                 parsed = urlparse(loc)
                 if self.is_allowed_domain(parsed.hostname or ""):
                     if loc.lower().endswith(".xml"):
-                        yield scrapy.Request(loc, callback=self.parse_aux, priority=30)
+                        yield scrapy.Request(
+                            loc, callback=self.parse_aux, priority=30,
+                            meta={"numbo_site": self._site_key(loc), "numbo_aux": True}
+                        )
                     else:
-                        yield scrapy.Request(loc, callback=self.parse, priority=15)
+                        request = self._request_page(
+                            loc, priority=15, meta={"numbo_source": "sitemap"}
+                        )
+                        if request:
+                            yield request
 
     def parse(self, response):
+        domain = self._site_key(response.url)
+        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+        state["scheduled"].discard(response.url)
+        state["count"] += 1
+
         text = " ".join(t.strip() for t in response.css("body ::text, body::text").getall() if t.strip())
         html = response.text or ""
         title = response.css("title::text").get(default="").strip()
@@ -123,7 +163,6 @@ class ContactSpider(scrapy.Spider):
                    v[0].decode() if isinstance(v[0], bytes) else v[0]
                    for k, v in response.headers.items()}
         technologies = detect_technologies(html=html, url=response.url, headers=headers)
-        domain = (urlparse(response.url).hostname or "").lower().removeprefix("www.")
         city = detect_city(text)
         category = detect_category(text, domain)
         business = extract_business_name(response, domain)
@@ -165,4 +204,6 @@ class ContactSpider(scrapy.Spider):
         for full in self._links(response):
             path = urlparse(full).path.lower()
             priority = 20 if any(k in path for k in self.IMPORTANT_PATHS) else 0
-            yield response.follow(full, callback=self.parse, priority=priority)
+            request = self._request_page(full, priority=priority)
+            if request:
+                yield request
