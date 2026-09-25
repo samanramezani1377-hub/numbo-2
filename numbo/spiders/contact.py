@@ -19,6 +19,11 @@ class ContactSpider(scrapy.Spider):
         self.start_urls = []
         self.allowed_domains = []
 
+        # خواندن تنظیمات فیلتر TLD از settings
+        from scrapy.utils.project import get_project_settings
+        settings = get_project_settings()
+        self.allowed_tlds = [t.lower().strip() for t in settings.getlist("ALLOWED_TLDS") if t.strip()]
+
         if os.path.exists(seeds_file):
             with open(seeds_file, "r", encoding="utf-8") as f:
                 for line in f:
@@ -27,13 +32,33 @@ class ContactSpider(scrapy.Spider):
                         continue
                     if not line.startswith("http"):
                         line = "https://" + line
-                    self.start_urls.append(line)
+
                     domain = urlparse(line).netloc.lower().replace("www.", "")
-                    if domain and domain not in self.allowed_domains:
+                    if not domain:
+                        continue
+
+                    # فیلتر TLD
+                    if self.allowed_tlds and not any(domain.endswith(tld) for tld in self.allowed_tlds):
+                        self.logger.debug("Skipping non-allowed TLD: %s", domain)
+                        continue
+
+                    self.start_urls.append(line)
+                    if domain not in self.allowed_domains:
                         self.allowed_domains.append(domain)
 
         if not self.start_urls:
-            self.logger.warning("No seeds found in %s. Add domains to seeds.txt", seeds_file)
+            self.logger.warning(
+                "No valid seeds found in %s (after TLD filter). "
+                "Check seeds.txt and ALLOWED_TLDS setting.", seeds_file
+            )
+
+    def is_allowed_domain(self, domain: str) -> bool:
+        domain = domain.lower().replace("www.", "")
+        if domain not in self.allowed_domains:
+            return False
+        if self.allowed_tlds and not any(domain.endswith(tld) for tld in self.allowed_tlds):
+            return False
+        return True
 
     def parse(self, response):
         text = " ".join(response.css("::text").getall())
@@ -81,9 +106,12 @@ class ContactSpider(scrapy.Spider):
             if parsed.scheme not in ("http", "https"):
                 continue
             domain = parsed.netloc.lower().replace("www.", "")
-            if domain in self.allowed_domains:
-                path = parsed.path.lower()
-                if any(k in path for k in ["contact", "about", "تماس", "درباره", "ارتباط"]):
-                    yield response.follow(full, callback=self.parse, priority=10)
-                else:
-                    yield response.follow(full, callback=self.parse)
+
+            if not self.is_allowed_domain(domain):
+                continue
+
+            path = parsed.path.lower()
+            if any(k in path for k in ["contact", "about", "تماس", "درباره", "ارتباط"]):
+                yield response.follow(full, callback=self.parse, priority=10)
+            else:
+                yield response.follow(full, callback=self.parse)
