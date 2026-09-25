@@ -24,6 +24,10 @@ USER_AGENT = "NumboContactBot/1.0 (+https://github.com/samanramezani1377-hub/num
 COOKIES_ENABLED = False
 TELNETCONSOLE_ENABLED = False
 
+DOWNLOADER_MIDDLEWARES = {
+    "numbo.middlewares.RotateUserAgentMiddleware": 400,
+}
+
 ITEM_PIPELINES = {
     "numbo.pipelines.ValidationPipeline": 100,
     "numbo.pipelines.DeduplicationPipeline": 200,
@@ -33,14 +37,11 @@ ITEM_PIPELINES = {
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
 
-# Depth limit to avoid endless crawling of a single large site
 DEPTH_LIMIT = 3
 
-# AutoThrottle for better politeness
 AUTOTHROTTLE_ENABLED = True
 AUTOTHROTTLE_START_DELAY = 1.0
 AUTOTHROTTLE_MAX_DELAY = 10.0
 AUTOTHROTTLE_TARGET_CONCURRENCY = 2.0
 
-# Close spider after idle (helps continuous runner)
-CLOSESPIDER_TIMEOUT = 0  # disabled, controlled by runner
+CLOSESPIDER_TIMEOUT = 0
