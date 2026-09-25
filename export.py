@@ -2,8 +2,8 @@
 """
 Export contacts from SQLite to CSV and Excel.
 
-Multi-value contact fields are expanded into separate columns so that
-multiple phones/emails never end up in a single spreadsheet cell.
+Every multi-value field is expanded into separate spreadsheet columns.
+One crawled site remains one row.
 """
 import json
 import os
@@ -48,7 +48,7 @@ def _expand_column(df, source, prefix, separator=","):
 
 
 def _expand_socials(df):
-    """Expand the stored social-links JSON object into one column per network."""
+    """Expand social links into one column per network."""
     if "socials" not in df.columns:
         return df
 
@@ -63,7 +63,11 @@ def _expand_socials(df):
         if not isinstance(data, dict):
             data = {}
 
-        clean = {str(k).strip(): str(v).strip() for k, v in data.items() if str(v).strip()}
+        clean = {
+            str(k).strip(): str(v).strip()
+            for k, v in data.items()
+            if str(v).strip()
+        }
         parsed.append(clean)
         for key in clean:
             if key not in keys:
@@ -72,25 +76,63 @@ def _expand_socials(df):
     df = df.drop(columns=["socials"])
     for key in keys:
         safe_key = "".join(
-            char if char.isalnum() or char == "_" else "_" for char in key.lower()
+            char if char.isalnum() or char == "_" else "_"
+            for char in key.lower()
         ).strip("_") or "unknown"
         df[f"social_{safe_key}"] = [item.get(key, "") for item in parsed]
     return df
 
 
+def _expand_evidence(df):
+    """Expand evidence JSON and its list values into independent columns."""
+    if "evidence" not in df.columns:
+        return df
+
+    parsed = []
+    for value in df["evidence"]:
+        try:
+            data = json.loads(value) if isinstance(value, str) and value else {}
+        except (TypeError, json.JSONDecodeError):
+            data = {}
+        parsed.append(data if isinstance(data, dict) else {})
+
+    df = df.drop(columns=["evidence"])
+
+    # Scalar evidence stays one cell; list evidence gets numbered cells.
+    for key in sorted({str(k) for item in parsed for k in item}):
+        values = [item.get(key) for item in parsed]
+        if any(isinstance(value, (list, tuple)) for value in values):
+            lists = [_split_values(value) for value in values]
+            width = max((len(items) for items in lists), default=0)
+            for index in range(width):
+                df[f"evidence_{key}_{index + 1}"] = [
+                    items[index] if index < len(items) else ""
+                    for items in lists
+                ]
+        else:
+            df[f"evidence_{key}"] = [
+                "" if value is None else str(value) for value in values
+            ]
+
+    return df
+
+
 def prepare_export_dataframe(df):
-    """Prepare contact data for spreadsheet export without multi-values in one cell."""
+    """Prepare a one-row-per-site export with no multi-value cells."""
     df = df.copy()
 
-    # One site remains one row; each phone/email gets its own cell/column.
+    # Contacts: each phone/email has its own cell.
     df = _expand_column(df, "phones", "phone")
     df = _expand_column(df, "emails", "email")
 
-    # Technologies are stored as: Name(0.95); Name(0.80)
+    # Site technology/structure: each detected technology has its own cell.
     df = _expand_column(df, "technologies", "technology", separator=";")
 
-    # Social networks are stored as JSON and become social_<network> columns.
+    # Social networks: one column per network.
     df = _expand_socials(df)
+
+    # Crawl/evidence details: list-valued evidence is also separated.
+    df = _expand_evidence(df)
 
     return df
 
