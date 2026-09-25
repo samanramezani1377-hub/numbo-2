@@ -15,80 +15,54 @@
       <div class="space-x-4 space-x-reverse">
         <a href="/" class="hover:underline">داشبورد</a>
         <a href="/contacts" class="hover:underline">نتایج</a>
+        <a href="/discovered-links" class="hover:underline">لینک‌های کشف‌شده</a>
         <a href="/logs" class="hover:underline">لاگ‌ها</a>
         <a href="/export" class="hover:underline">دانلود Excel</a>
       </div>
     </div>
   </nav>
-
   <main class="max-w-7xl mx-auto p-6">
-    <!-- فیلتر -->
     <form method="get" class="bg-white rounded-xl shadow p-4 mb-6 flex flex-wrap gap-3 items-end">
-      <div>
-        <label class="text-sm text-gray-600">جستجو</label>
-        <input type="text" name="q" value="{{ q }}" placeholder="دامنه، شماره، ایمیل..." class="border rounded-lg px-3 py-2 w-48">
-      </div>
-      <div>
-        <label class="text-sm text-gray-600">تکنولوژی</label>
-        <input type="text" name="tech" value="{{ tech }}" placeholder="WordPress / WooCommerce" class="border rounded-lg px-3 py-2 w-44">
-      </div>
-      <div>
-        <label class="text-sm text-gray-600">شهر</label>
-        <input type="text" name="city" value="{{ city }}" placeholder="تهران" class="border rounded-lg px-3 py-2 w-32">
-      </div>
+      <div><label class="text-sm text-gray-600">جستجو</label><input type="text" name="q" value="{{ q }}" placeholder="دامنه، شماره، ایمیل..." class="border rounded-lg px-3 py-2 w-48"></div>
+      <div><label class="text-sm text-gray-600">تکنولوژی</label><input type="text" name="tech" value="{{ tech }}" placeholder="WordPress / WooCommerce" class="border rounded-lg px-3 py-2 w-44"></div>
+      <div><label class="text-sm text-gray-600">شهر</label><input type="text" name="city" value="{{ city }}" placeholder="تهران" class="border rounded-lg px-3 py-2 w-32"></div>
       <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg">اعمال فیلتر</button>
       <a href="/contacts" class="text-gray-500 hover:underline py-2">پاک کردن</a>
     </form>
-
     <div class="text-sm text-gray-500 mb-3">{{ total|default(0) }} نتیجه</div>
-
     <div class="bg-white rounded-xl shadow overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-gray-50 text-gray-600">
-          <tr>
-            <th class="p-3 text-right">دامنه</th>
-            <th class="p-3 text-right">شماره‌ها</th>
-            <th class="p-3 text-right">ایمیل</th>
-            <th class="p-3 text-right">شهر</th>
-            <th class="p-3 text-right">دسته</th>
-            <th class="p-3 text-right">تکنولوژی</th>
-            <th class="p-3 text-right">زمان</th>
-          </tr>
-        </thead>
+        <thead class="bg-gray-50 text-gray-600"><tr>
+          <th class="p-3 text-right">دامنه</th><th class="p-3 text-right">شماره‌ها</th><th class="p-3 text-right">ایمیل</th>
+          <th class="p-3 text-right">شهر</th><th class="p-3 text-right">دسته</th><th class="p-3 text-right min-w-64">تکنولوژی</th><th class="p-3 text-right">زمان</th>
+        </tr></thead>
         <tbody>
-          {% for row in rows %}
-          <tr class="border-t hover:bg-gray-50">
+        {% for row in rows %}
+          <tr class="border-t hover:bg-gray-50 align-top">
+            <td class="p-3"><a href="{{ row['source_url'] }}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">{{ row['domain'] }}</a></td>
+            <td class="p-3 font-mono text-xs">{{ row['phones'] or '-' }}</td><td class="p-3 text-xs">{{ row['emails'] or '-' }}</td>
+            <td class="p-3">{{ row['city'] or '-' }}</td><td class="p-3">{{ row['category'] or '-' }}</td>
             <td class="p-3">
-              <a href="{{ row['source_url'] }}" target="_blank" class="text-indigo-600 hover:underline">{{ row['domain'] }}</a>
+              {% set technologies = (row['technologies'] or '').split(';') %}
+              <div class="flex flex-wrap gap-1.5 max-w-md">
+                {% for technology in technologies %}
+                  {% set technology = technology.strip() %}
+                  {% if technology %}<span class="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 text-xs font-medium whitespace-nowrap">{{ technology }}</span>{% endif %}
+                {% endfor %}
+                {% if not (row['technologies'] or '').strip() %}<span class="text-gray-400">-</span>{% endif %}
+              </div>
             </td>
-            <td class="p-3 font-mono text-xs">{{ row['phones'] or '-' }}</td>
-            <td class="p-3 text-xs">{{ row['emails'] or '-' }}</td>
-            <td class="p-3">{{ row['city'] or '-' }}</td>
-            <td class="p-3">{{ row['category'] or '-' }}</td>
-            <td class="p-3 text-xs max-w-xs truncate" title="{{ row['technologies'] }}">{{ row['technologies'] or '-' }}</td>
-            <td class="p-3 text-xs text-gray-400">{{ row['crawled_at'][:16] if row['crawled_at'] else '-' }}</td>
+            <td class="p-3 text-xs text-gray-400 whitespace-nowrap">{{ row['crawled_at'][:16] if row['crawled_at'] else '-' }}</td>
           </tr>
-          {% else %}
-          <tr>
-            <td colspan="7" class="p-8 text-center text-gray-400">هنوز نتیجه‌ای ثبت نشده</td>
-          </tr>
-          {% endfor %}
+        {% else %}<tr><td colspan="7" class="p-8 text-center text-gray-400">هنوز نتیجه‌ای ثبت نشده</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
-
-    <!-- صفحه‌بندی -->
-    {% if total_pages > 1 %}
-    <div class="flex justify-center gap-2 mt-6">
-      {% if page > 1 %}
-        <a href="?page={{ page-1 }}&q={{ q }}&tech={{ tech }}&city={{ city }}" class="px-3 py-1 bg-white rounded shadow">قبلی</a>
-      {% endif %}
+    {% if total_pages > 1 %}<div class="flex justify-center gap-2 mt-6">
+      {% if page > 1 %}<a href="?page={{ page-1 }}&q={{ q }}&tech={{ tech }}&city={{ city }}" class="px-3 py-1 bg-white rounded shadow">قبلی</a>{% endif %}
       <span class="px-3 py-1">صفحه {{ page }} از {{ total_pages }}</span>
-      {% if page < total_pages %}
-        <a href="?page={{ page+1 }}&q={{ q }}&tech={{ tech }}&city={{ city }}" class="px-3 py-1 bg-white rounded shadow">بعدی</a>
-      {% endif %}
-    </div>
-    {% endif %}
+      {% if page < total_pages %}<a href="?page={{ page+1 }}&q={{ q }}&tech={{ tech }}&city={{ city }}" class="px-3 py-1 bg-white rounded shadow">بعدی</a>{% endif %}
+    </div>{% endif %}
   </main>
 </body>
 </html>
