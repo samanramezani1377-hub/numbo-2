@@ -117,6 +117,115 @@ def _expand_evidence(df):
     return df
 
 
+def _unique_values(values):
+    result = []
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, float) and pd.isna(value):
+            continue
+        value = str(value).strip()
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+def _merge_json_dicts(values):
+    merged = {}
+    for value in values:
+        if isinstance(value, dict):
+            data = value
+        else:
+            try:
+                data = json.loads(value) if isinstance(value, str) and value else {}
+            except (TypeError, json.JSONDecodeError):
+                data = {}
+        if not isinstance(data, dict):
+            continue
+        for key, item in data.items():
+            if item not in (None, ""):
+                merged.setdefault(str(key), item)
+    return merged
+
+
+def aggregate_contacts_dataframe(df):
+    """Aggregate page-level crawl rows into one lead row per domain."""
+    if df.empty or "domain" not in df.columns:
+        return df.copy()
+
+    rows = []
+    for domain, group in df.groupby("domain", sort=False, dropna=False):
+        row = {"domain": domain}
+        for column in df.columns:
+            if column == "domain":
+                continue
+            values = group[column].tolist()
+
+            if column in {"phones", "emails"}:
+                merged = []
+                for value in values:
+                    merged.extend(_split_values(value))
+                row[column] = ",".join(_unique_values(merged))
+            elif column == "technologies":
+                merged = []
+                for value in values:
+                    merged.extend(_split_values(value, separator=";"))
+                row[column] = "; ".join(_unique_values(merged))
+            elif column == "socials":
+                row[column] = json.dumps(_merge_json_dicts(values), ensure_ascii=False)
+            elif column == "evidence":
+                evidence = []
+                for value in values:
+                    try:
+                        item = json.loads(value) if isinstance(value, str) and value else {}
+                    except (TypeError, json.JSONDecodeError):
+                        item = {}
+                    if isinstance(item, dict):
+                        evidence.append(item)
+                merged = {}
+                pages = _unique_values([item.get("page") for item in evidence])
+                if pages:
+                    merged["pages"] = pages
+                field_sources = {}
+                for item in evidence:
+                    for field, sources in (item.get("field_sources") or {}).items():
+                        field_sources.setdefault(field, [])
+                        field_sources[field].extend(sources or [])
+                for field, sources in field_sources.items():
+                    clean = _unique_values(sources)
+                    if clean:
+                        field_sources[field] = clean
+                if field_sources:
+                    merged["field_sources"] = field_sources
+                for key in ("tel_links", "mailto_links"):
+                    total = sum(int(item.get(key) or 0) for item in evidence)
+                    if total:
+                        merged[key] = total
+                row[column] = json.dumps(merged, ensure_ascii=False)
+            elif column == "source_url":
+                row[column] = ",".join(_unique_values(values))
+            elif column in {"address", "business_name", "category", "city"}:
+                candidates = _unique_values(values)
+                # Prefer meaningful non-empty values; for address, longest is
+                # generally the most complete semantic address.
+                row[column] = max(candidates, key=len) if candidates else ""
+            elif column == "quality_score":
+                nums = [float(v) for v in values if v not in (None, "")]
+                row[column] = round(max(nums), 2) if nums else 0
+            elif column == "crawled_at":
+                clean = _unique_values(values)
+                row[column] = max(clean) if clean else ""
+            elif column == "title":
+                clean = _unique_values(values)
+                row[column] = clean[0] if clean else ""
+            else:
+                clean = _unique_values(values)
+                row[column] = clean[0] if clean else ""
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=df.columns)
+
+
 def prepare_export_dataframe(df):
     """Prepare a one-row-per-site export with no multi-value cells."""
     df = df.copy()
@@ -143,7 +252,7 @@ def main():
         return
 
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM contacts ORDER BY crawled_at DESC", conn)
+    df = pd.read_sql_query("SELECT * FROM contacts ORDER BY crawled_at DESC", conn)\n    df = aggregate_contacts_dataframe(df)
     conn.close()
 
     if df.empty:
@@ -161,7 +270,7 @@ def main():
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     df.to_excel(xlsx_path, index=False)
 
-    print(f"Exported {len(df)} contacts")
+    print(f"Exported {len(df)} sites/leads")
     print(f"CSV  → {csv_path}")
     print(f"Excel → {xlsx_path}")
 
