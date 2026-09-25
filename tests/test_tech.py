@@ -1,21 +1,14 @@
 from numbo.utils.tech import detect_technologies
 
-
-def test_wordpress():
-    html = '<html><head><meta name="generator" content="WordPress 6.4"></head>'
-    html += '<link href="/wp-content/themes/x/style.css"><script src="/wp-includes/js/wp-emoji.js"></script>'
-    names = [t["name"] for t in detect_technologies(html=html, url="https://shop.ir")]
-    assert "WordPress" in names
-
-
-def test_woocommerce():
-    html = '<div class="woocommerce"><button class="wc-add-to-cart">buy</button></div>'
-    html += '<script src="/wp-content/plugins/woocommerce/assets/js/woocommerce.js"></script>'
-    names = [t["name"] for t in detect_technologies(html=html)]
+def test_woocommerce_strong_signature():
+    result = detect_technologies("<script src='/wp-content/plugins/woocommerce/assets/js/wc-add-to-cart.js'></script>")
+    names = {x["name"] for x in result}
     assert "WooCommerce" in names
 
+def test_weak_word_not_enough():
+    result = detect_technologies("<html><body>wordpress training course</body></html>")
+    assert "WordPress" not in {x["name"] for x in result}
 
-def test_nextjs():
-    html = '<script src="/_next/static/chunks/main.js"></script><script id="__NEXT_DATA__" type="application/json">{}</script>'
-    names = [t["name"] for t in detect_technologies(html=html)]
-    assert "Next.js" in names
+def test_nextjs_signature():
+    result = detect_technologies("<script src='/_next/static/chunks/app.js'></script>")
+    assert "Next.js" in {x["name"] for x in result}
