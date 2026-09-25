@@ -31,6 +31,7 @@ class ContactSpider(scrapy.Spider):
         default_budget = self.custom_settings.get("NUMBO_PAGE_BUDGET", 20)
         self.page_budget = max(1, int(page_budget_arg if page_budget_arg is not None else default_budget))
         self.start_urls, self.allowed_domains = [], []
+        self.seed_domains = set()
         self.site_pages = {}
         self.frontier = CrawlHistory(frontier_db)
         self.allowed_tlds = [t.lower().strip() for t in
@@ -44,8 +45,13 @@ class ContactSpider(scrapy.Spider):
                     if not line.startswith(("http://", "https://")):
                         line = "https://" + line
                     domain = (urlparse(line).hostname or "").lower().removeprefix("www.")
-                    if not domain or (self.allowed_tlds and not any(domain.endswith(t) for t in self.allowed_tlds)):
+                    if not domain:
                         continue
+                    # An explicit seed is always honored, even when its TLD is
+                    # outside the global filter. The exception is scoped to the
+                    # exact seeded domain; it does not open crawling to other
+                    # domains with that TLD.
+                    self.seed_domains.add(domain)
                     line = self._canonical_url(line)
                     if line not in self.start_urls:
                         self.start_urls.append(line)
@@ -91,8 +97,14 @@ class ContactSpider(scrapy.Spider):
 
     def is_allowed_domain(self, domain: str) -> bool:
         domain = (domain or "").lower().removeprefix("www.")
-        return bool(domain and
-                    (not self.allowed_tlds or any(domain.endswith(tld) for tld in self.allowed_tlds)))
+        if not domain:
+            return False
+        # Explicit seeds are always crawlable for their own domain, regardless
+        # of the global TLD filter. This keeps a .com seed usable while the
+        # global filter remains .ir, without allowing unrelated .com sites.
+        if domain in self.seed_domains:
+            return True
+        return bool(not self.allowed_tlds or any(domain.endswith(tld) for tld in self.allowed_tlds))
 
     def _links(self, response):
         seen = set()
