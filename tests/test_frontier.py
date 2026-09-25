@@ -140,3 +140,20 @@ def test_explicit_seed_bypasses_global_tld_only_for_that_seed(tmp_path):
     assert crawlable["https://other.com/contact"] == 0
     assert crawlable["https://allowed.ir/contact"] == 1
     spider.frontier.close()
+
+def test_explicit_seed_is_requeued_each_cycle(tmp_path):
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("https://example.com\n", encoding="utf-8")
+    db = tmp_path / "numbo.db"
+
+    history = CrawlHistory(db)
+    history.reserve("https://example.com/", "example.com")
+    history.mark_crawled("https://example.com/")
+    history.close()
+
+    spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db))
+    request = next(iter(spider.start_requests()))
+    assert request.url == "https://example.com/"
+    assert request.meta["numbo_source"] == "seed"
+    assert spider.frontier.was_crawled("https://example.com/") is False
+    spider.frontier.close()
