@@ -99,12 +99,21 @@ class ContactSpider(scrapy.Spider):
         for href in response.css("a::attr(href)").getall():
             full = self._canonical_url(urljoin(response.url, href))
             parsed = urlparse(full)
-            if parsed.scheme not in ("http", "https") or not self.is_allowed_domain(parsed.hostname or ""):
+            if parsed.scheme not in ("http", "https"):
                 continue
             if parsed.path.lower().endswith(self.SKIP_EXTENSIONS):
                 continue
             if full not in seen:
                 seen.add(full)
+                target_domain = self._site_key(full)
+                source_domain = self._site_key(response.url)
+                self.frontier.record_discovered_link(
+                    response.url,
+                    full,
+                    target_domain,
+                    target_domain != source_domain,
+                    self.is_allowed_domain(target_domain),
+                )
                 yield full
 
     def _reserve_page(self, url):
@@ -233,6 +242,8 @@ class ContactSpider(scrapy.Spider):
         for full in self._links(response):
             path = urlparse(full).path.lower()
             priority = 20 if any(k in path for k in self.IMPORTANT_PATHS) else 0
+            if not self.is_allowed_domain(self._site_key(full)):
+                continue
             request = self._request_page(full, priority=priority)
             if request:
                 yield request
