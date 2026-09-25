@@ -252,7 +252,8 @@ def main():
         return
 
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM contacts ORDER BY crawled_at DESC", conn)\n    df = aggregate_contacts_dataframe(df)
+    df = pd.read_sql_query("SELECT * FROM contacts ORDER BY crawled_at DESC", conn)
+    df = aggregate_contacts_dataframe(df)
     conn.close()
 
     if df.empty:
