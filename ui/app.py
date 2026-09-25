@@ -117,7 +117,7 @@ async def health():
 async def login_page(request: Request, error: str = ""):
     if logged_in(request):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+    return templates.TemplateResponse(request=request, name="login.html", context={"request": request, "error": error})
 
 
 @app.post("/login")
@@ -125,7 +125,7 @@ async def login_submit(request: Request, password: str = Form("")):
     if PANEL_PASSWORD and password == PANEL_PASSWORD:
         request.session["ok"] = True
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": "wrong"}, status_code=401)
+    return templates.TemplateResponse(request=request, name="login.html", context={"request": request, "error": "wrong"}, status_code=401)
 
 
 @app.post("/logout")
@@ -138,7 +138,7 @@ async def logout(request: Request):
 async def dashboard(request: Request):
     cfg = load_config()
     tlds = ",".join(cfg.get("allowed_tlds") or [])
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request=request, name="index.html", context={
         "request": request,
         "stats": get_stats(),
         "running": is_crawler_running(),
@@ -213,7 +213,7 @@ async def list_contacts(
 ):
     conn = get_db()
     if not conn:
-        return templates.TemplateResponse("contacts.html", {
+        return templates.TemplateResponse(request=request, name="contacts.html", context={
             "request": request, "rows": [], "page": 1, "total_pages": 0,
             "q": q or "", "tech": tech or "", "city": city or "", "total": 0,
         })
@@ -265,4 +265,4 @@ async def view_logs(request: Request):
     if LOG_FILE.exists():
         lines = LOG_FILE.read_text(encoding="utf-8", errors="ignore").splitlines()
         content = "\n".join(lines[-150:])
-    return templates.TemplateResponse("logs.html", {"request": request, "logs": content})
+    return templates.TemplateResponse(request=request, name="logs.html", context={"request": request, "logs": content})
