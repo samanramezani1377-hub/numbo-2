@@ -261,6 +261,11 @@ class ContactSpider(scrapy.Spider):
             # to a different domain. Disallowed links remain discovery-only.
             if not self.is_allowed_domain(target_domain):
                 continue
+            # Scrapy's OffsiteMiddleware also checks allowed_domains. Add
+            # newly discovered, configuration-allowed domains dynamically so
+            # an allowed external site can actually be fetched.
+            if target_domain not in self.allowed_domains:
+                self.allowed_domains.append(target_domain)
             request = self._request_page(full, priority=priority, meta={
                 "numbo_source": "external" if target_domain != domain else "internal"
             })
