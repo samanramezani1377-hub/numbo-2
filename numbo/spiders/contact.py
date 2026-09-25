@@ -255,9 +255,15 @@ class ContactSpider(scrapy.Spider):
         for full in self._links(response):
             path = urlparse(full).path.lower()
             priority = 20 if any(k in path for k in self.IMPORTANT_PATHS) else 0
-            if not self.is_allowed_domain(self._site_key(full)):
+            target_domain = self._site_key(full)
+            # A discovered link becomes crawlable when its target TLD is
+            # allowed by the current configuration, even when it belongs
+            # to a different domain. Disallowed links remain discovery-only.
+            if not self.is_allowed_domain(target_domain):
                 continue
-            request = self._request_page(full, priority=priority)
+            request = self._request_page(full, priority=priority, meta={
+                "numbo_source": "external" if target_domain != domain else "internal"
+            })
             if request:
                 yield request
 
