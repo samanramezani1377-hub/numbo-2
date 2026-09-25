@@ -33,7 +33,7 @@ class ContactSpider(scrapy.Spider):
                     if not line.startswith("http"):
                         line = "https://" + line
 
-                    domain = urlparse(line).netloc.lower().replace("www.", "")
+                    domain = (urlparse(line).hostname or "").lower().replace("www.", "")
                     if not domain:
                         continue
 
@@ -74,7 +74,7 @@ class ContactSpider(scrapy.Spider):
         }
         technologies = detect_technologies(html=html, url=response.url, headers=headers)
 
-        domain = urlparse(response.url).netloc.lower().replace("www.", "")
+        domain = (urlparse(response.url).hostname or "").lower().replace("www.", "")
         city = detect_city(text)
         category = detect_category(text, domain)
         business = title.split("-")[0].split("|")[0].strip() if title else domain
@@ -112,7 +112,7 @@ class ContactSpider(scrapy.Spider):
             parsed = urlparse(full)
             if parsed.scheme not in ("http", "https"):
                 continue
-            domain = parsed.netloc.lower().replace("www.", "")
+            domain = (parsed.hostname or "").lower().replace("www.", "")
             if not self.is_allowed_domain(domain):
                 continue
             path = parsed.path.lower()
