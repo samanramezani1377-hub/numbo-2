@@ -104,6 +104,22 @@ jobs:
           printf '%s\n' 'http://127.0.0.1:8765/' > seeds.txt
           curl --fail --silent -X POST http://127.0.0.1:8080/seeds --data-urlencode "seeds=http://127.0.0.1:8765/"
           curl --fail --silent -X POST http://127.0.0.1:8080/start > /dev/null
+
+          echo "=== Post-start diagnostics ==="
+          if [ -f data/crawler.pid ]; then
+            echo "crawler.pid: $(cat data/crawler.pid)"
+            pid="$(cat data/crawler.pid)"
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "Crawler process is alive."
+            else
+              echo "Crawler process is NOT alive."
+            fi
+          else
+            echo "crawler.pid is missing."
+          fi
+          echo "--- numbo.log ---"
+          cat numbo.log 2>/dev/null || true
+
           found=0
           for i in $(seq 1 60); do
             sleep 1
@@ -125,7 +141,25 @@ jobs:
               fi
             fi
           done
-          test "$found" -eq 1
+
+          if [ "$found" -ne 1 ]; then
+            echo "=== CRAWLER DIAGNOSTICS: contacts were not persisted ==="
+            echo "--- crawler.pid ---"
+            cat data/crawler.pid 2>/dev/null || true
+            echo "--- process status ---"
+            if [ -f data/crawler.pid ]; then
+              ps -fp "$(cat data/crawler.pid)" || true
+            fi
+            echo "--- numbo.log ---"
+            cat numbo.log 2>/dev/null || true
+            echo "--- ui.log ---"
+            cat ui.log 2>/dev/null || true
+            echo "--- fixture.log ---"
+            cat fixture.log 2>/dev/null || true
+            echo "--- data directory ---"
+            find data -maxdepth 2 -type f -ls 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Verify persisted data and extraction
         run: |
@@ -199,6 +233,9 @@ jobs:
             echo "## Local UI / crawler"
             cat stats-after-local.json 2>/dev/null || true
             echo
+            echo "## Crawler runtime log"
+            tail -n 150 numbo.log 2>/dev/null || true
+            echo
             echo "## Public crawl"
             echo "https://woogit.ir/"
             echo
@@ -220,6 +257,9 @@ jobs:
             data/numbo.db
             live-export.xlsx
             public-crawl.log
+            numbo.log
+            crawler.pid
+            seeds.txt
             public-data/config.json
             live-e2e-summary.md
             ui.log
