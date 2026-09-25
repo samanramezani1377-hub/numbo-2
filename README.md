@@ -11,6 +11,7 @@
 - استخراج ایمیل و لینک شبکه‌های اجتماعی
 - حذف تکراری خودکار
 - دسته‌بندی ساده بر اساس کلیدواژه و تشخیص شهر
+- **فیلتر قابل تنظیم دامنه (TLD)** — پیش‌فرض فقط `.ir`
 - ذخیره در SQLite + خروجی CSV و Excel
 - احترام به robots.txt + Rate Limit + AutoThrottle
 - چرخش User-Agent
@@ -31,14 +32,31 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## تنظیم فیلتر دامنه (فقط .ir یا هر چیز دیگه)
+
+فایل `numbo/settings.py` را باز کن و این بخش را تغییر بده:
+
+```python
+# فقط دامنه‌های ایرانی
+ALLOWED_TLDS = [".ir"]
+
+# یا همه دامنه‌ها (بدون محدودیت)
+# ALLOWED_TLDS = []
+
+# یا چند پسوند
+# ALLOWED_TLDS = [".ir", ".com", ".org"]
+```
+
+پیش‌فرض روی فقط `.ir` تنظیم شده است.
+
 ## نحوه اجرا (مداوم)
 
 1. دامنه‌ها یا URLهای اولیه را در فایل `seeds.txt` بنویس (هر خط یکی):
 
 ```text
 example.ir
-digikala.com
-https://www.some-site.com
+some-shop.ir
+https://www.another.ir
 ```
 
 2. اجرا:
@@ -74,13 +92,13 @@ numbo-2/
 ├── seeds.txt              # لیست شروع
 ├── requirements.txt
 ├── numbo/
-│   ├── settings.py
+│   ├── settings.py        # تنظیمات (از جمله ALLOWED_TLDS)
 │   ├── items.py
 │   ├── pipelines.py
 │   ├── middlewares.py
 │   ├── spiders/contact.py
 │   └── utils/
-│       ├── phone.py       # استخراج شماره ایرانی
+│       ├── phone.py
 │       └── category.py
 └── deploy/
     └── numbo.service
