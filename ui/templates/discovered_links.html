@@ -21,15 +21,29 @@
     </div>
   </nav>
   <main class="max-w-7xl mx-auto p-6">
-    <form method="get" class="bg-white rounded-xl shadow p-4 mb-6 flex gap-3 items-end">
-      <div class="flex-1">
+    <form method="get" class="bg-white rounded-xl shadow p-4 mb-6 flex gap-3 items-end flex-wrap">
+      <div class="flex-1 min-w-[240px]">
         <label class="text-sm text-gray-600">جستجو</label>
         <input type="text" name="q" value="{{ q }}" placeholder="دامنه یا URL..." class="border rounded-lg px-3 py-2 w-full">
       </div>
-      <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">جستجو</button>
+      <div>
+        <label class="text-sm text-gray-600">وضعیت</label>
+        <select name="status" class="border rounded-lg px-3 py-2">
+          <option value="all" {% if status == "all" %}selected{% endif %}>همه</option>
+          <option value="allowed" {% if status == "allowed" %}selected{% endif %}>قابل کراول</option>
+          <option value="denied" {% if status == "denied" %}selected{% endif %}>غیرمجاز برای کراول</option>
+        </select>
+      </div>
+      <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">فیلتر</button>
       <a href="/discovered-links" class="text-gray-500 py-2">پاک کردن</a>
     </form>
-    <div class="text-sm text-gray-500 mb-3">{{ total }} لینک</div>
+    <div class="flex flex-wrap gap-3 mb-4 text-sm">
+      <span class="bg-white rounded-lg shadow px-4 py-2">همه: {{ total }}</span>
+      <a href="/discovered-links?status=allowed" class="bg-green-50 text-green-700 rounded-lg shadow px-4 py-2">قابل کراول: {{ allowed_total }}</a>
+      <a href="/discovered-links?status=denied" class="bg-gray-50 text-gray-700 rounded-lg shadow px-4 py-2">غیرمجاز: {{ denied_total }}</a>
+      <a href="/discovered-links/download?status=denied" class="bg-gray-800 text-white rounded-lg px-4 py-2">دانلود غیرمجازها CSV</a>
+      <a href="/discovered-links/download?status=allowed" class="bg-indigo-600 text-white rounded-lg px-4 py-2">دانلود قابل‌کراول‌ها CSV</a>
+    </div>
     <div class="bg-white rounded-xl shadow overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 text-gray-600">
@@ -66,9 +80,9 @@
     </div>
     {% if total_pages > 1 %}
     <div class="flex justify-center gap-2 mt-6">
-      {% if page > 1 %}<a href="?page={{ page-1 }}&q={{ q }}" class="px-3 py-1 bg-white rounded shadow">قبلی</a>{% endif %}
+      {% if page > 1 %}<a href="?page={{ page-1 }}&q={{ q }}&status={{ status }}" class="px-3 py-1 bg-white rounded shadow">قبلی</a>{% endif %}
       <span class="px-3 py-1">صفحه {{ page }} از {{ total_pages }}</span>
-      {% if page < total_pages %}<a href="?page={{ page+1 }}&q={{ q }}" class="px-3 py-1 bg-white rounded shadow">بعدی</a>{% endif %}
+      {% if page < total_pages %}<a href="?page={{ page+1 }}&q={{ q }}&status={{ status }}" class="px-3 py-1 bg-white rounded shadow">بعدی</a>{% endif %}
     </div>
     {% endif %}
   </main>
