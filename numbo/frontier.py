@@ -88,13 +88,27 @@ class CrawlHistory:
 
 
     def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
-        self.conn.execute(
-            """INSERT OR IGNORE INTO discovered_links
-               (source_url, target_url, target_domain, external, crawlable, first_seen)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (source_url, target_url, target_domain, int(external), int(crawlable), datetime.utcnow().isoformat()),
+        # Discovery happens frequently; keep a short retry loop because the
+        # crawler and the UI may touch the same SQLite database concurrently.
+        values = (
+            source_url, target_url, target_domain, int(external), int(crawlable),
+            datetime.utcnow().isoformat(),
         )
-        self.conn.commit()
+        for attempt in range(6):
+            try:
+                self.conn.execute(
+                    """INSERT OR IGNORE INTO discovered_links
+                       (source_url, target_url, target_domain, external, crawlable, first_seen)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    values,
+                )
+                self.conn.commit()
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or attempt == 5:
+                    raise
+                import time
+                time.sleep(0.25 * (2 ** attempt))
 
     def list_discovered_links(self, query=None, page=1, per_page=50, crawlable=None):
         page = max(int(page), 1)
