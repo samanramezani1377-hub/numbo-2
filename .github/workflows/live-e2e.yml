@@ -118,13 +118,33 @@ jobs:
           curl --fail --silent http://127.0.0.1:8080/api/stats > stats-pre-live.json
           cat stats-pre-live.json
           cp config.live-backup.json config.json
-          # The fixture UI is only for local E2E. Stop the exact process and verify that
-          # port 8080 is really free before starting the public session.
+          # The fixture UI is only for local E2E. Tear down the exact process,
+          # its process group, and anything still holding 8080 before the public session.
+          # Do not merely skip the check: the next phase must start on a genuinely free port.
           if [ -f ui.pid ]; then
-            kill "$(cat ui.pid)" 2>/dev/null || true
+            ui_pid="$(cat ui.pid)"
+            if kill -0 "$ui_pid" 2>/dev/null; then
+              kill -TERM "$ui_pid" 2>/dev/null || true
+              for i in $(seq 1 15); do
+                if ! kill -0 "$ui_pid" 2>/dev/null; then break; fi
+                sleep 1
+              done
+              kill -KILL "$ui_pid" 2>/dev/null || true
+            fi
           fi
-          pkill -TERM -f "python start_ui.py" 2>/dev/null || true
-          for i in $(seq 1 30); do
+
+          # start_ui.py is a single uvicorn process (reload is disabled), so find
+          # remaining listeners by port rather than using a broad pkill pattern.
+          if command -v fuser >/dev/null 2>&1; then
+            sudo fuser -TERM 8080/tcp 2>/dev/null || true
+            for i in $(seq 1 15); do
+              if ! sudo fuser 8080/tcp >/dev/null 2>&1; then break; fi
+              sleep 1
+            done
+            sudo fuser -KILL 8080/tcp 2>/dev/null || true
+          fi
+
+          for i in $(seq 1 15); do
             if ! (curl --silent --show-error --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1); then
               break
             fi
@@ -132,12 +152,9 @@ jobs:
           done
           if (curl --silent --show-error --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1); then
             echo "ERROR: old Numbo UI is still serving on port 8080" >&2
+            sudo fuser -v 8080/tcp 2>&1 || true
             exit 1
           fi
-          if command -v fuser >/dev/null 2>&1; then
-            sudo fuser -k 8080/tcp 2>/dev/null || true
-          fi
-          sleep 1
 
       - name: Prepare live session
         run: |
