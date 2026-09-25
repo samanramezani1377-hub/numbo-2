@@ -108,7 +108,9 @@ async def auth_mw(request: Request, call_next):
 
 @app.get("/health")
 async def health():
-    return {"ok": True}
+    # Keep the legacy `ok` field for existing clients while exposing the
+    # explicit health status expected by live E2E and monitoring.
+    return {"status": "ok", "ok": True}
 
 
 @app.get("/login", response_class=HTMLResponse)
