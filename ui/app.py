@@ -18,7 +18,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
 
-from numbo.config import load as load_config, save as save_config  # noqa: E402
+from numbo.config import load as load_config
+from numbo.utils.phone import split_phones, save as save_config  # noqa: E402
 
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "numbo.db"
@@ -230,17 +231,60 @@ async def list_contacts(
     if city:
         where.append("city = ?")
         params.append(city)
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    total = conn.execute(f"SELECT COUNT(*) FROM contacts {where_sql}", params).fetchone()[0]
-    rows = conn.execute(
-        f"SELECT * FROM contacts {where_sql} ORDER BY crawled_at DESC LIMIT ? OFFSET ?",
-        params + [per_page, offset],
+    where_sql = ("WHERE    raw_rows = conn.execute(
+        f"SELECT * FROM contacts {where_sql} ORDER BY crawled_at DESC",
+        params,
     ).fetchall()
     conn.close()
+
+    # Present one lead row per domain instead of one row per crawled page.
+    grouped = {}
+    for raw in raw_rows:
+        domain = (raw["domain"] or "").strip().lower()
+        if not domain:
+            continue
+        row = grouped.setdefault(domain, {
+            "domain": domain,
+            "source_url": raw["source_url"] or "",
+            "phones": [],
+            "emails": [],
+            "city": raw["city"] or "",
+            "category": raw["category"] or "",
+            "technologies": [],
+            "crawled_at": raw["crawled_at"] or "",
+        })
+        if not row["source_url"]:
+            row["source_url"] = raw["source_url"] or ""
+        for value in (raw["phones"] or "").split(","):
+            value = value.strip()
+            if value and value not in row["phones"]:
+                row["phones"].append(value)
+        for value in (raw["emails"] or "").split(","):
+            value = value.strip()
+            if value and value not in row["emails"]:
+                row["emails"].append(value)
+        for value in (raw["technologies"] or "").split(";"):
+            value = value.strip()
+            if value and value not in row["technologies"]:
+                row["technologies"].append(value)
+        if raw["city"]:
+            row["city"] = raw["city"]
+        if raw["category"]:
+            row["category"] = raw["category"]
+        if (raw["crawled_at"] or "") > row["crawled_at"]:
+            row["crawled_at"] = raw["crawled_at"]
+
+    rows = list(grouped.values())
+    for row in rows:
+        row["mobile_phones"], row["landline_phones"] = split_phones(row["phones"])
+
+    total = len(rows)
+    rows = rows[offset:offset + per_page]
     total_pages = max(1, (total + per_page - 1) // per_page)
     return templates.TemplateResponse("contacts.html", {
         "request": request, "rows": rows, "page": page, "total_pages": total_pages,
         "q": q or "", "tech": tech or "", "city": city or "", "total": total,
+    }) "city": city or "", "total": total,
     })
 
 
