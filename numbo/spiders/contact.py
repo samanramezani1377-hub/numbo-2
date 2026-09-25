@@ -5,6 +5,7 @@ from datetime import datetime
 from numbo.items import ContactItem
 from numbo.utils.phone import extract_phones
 from numbo.utils.category import detect_city, detect_category, extract_emails
+from numbo.utils.tech import detect_technologies
 
 
 class ContactSpider(scrapy.Spider):
@@ -19,7 +20,6 @@ class ContactSpider(scrapy.Spider):
         self.start_urls = []
         self.allowed_domains = []
 
-        # خواندن تنظیمات فیلتر TLD از settings
         from scrapy.utils.project import get_project_settings
         settings = get_project_settings()
         self.allowed_tlds = [t.lower().strip() for t in settings.getlist("ALLOWED_TLDS") if t.strip()]
@@ -37,7 +37,6 @@ class ContactSpider(scrapy.Spider):
                     if not domain:
                         continue
 
-                    # فیلتر TLD
                     if self.allowed_tlds and not any(domain.endswith(tld) for tld in self.allowed_tlds):
                         self.logger.debug("Skipping non-allowed TLD: %s", domain)
                         continue
@@ -62,30 +61,37 @@ class ContactSpider(scrapy.Spider):
 
     def parse(self, response):
         text = " ".join(response.css("::text").getall())
+        html = response.text or ""
         title = response.css("title::text").get(default="").strip()
 
         phones = extract_phones(text)
         emails = extract_emails(text)
 
-        if phones or emails:
-            domain = urlparse(response.url).netloc.lower().replace("www.", "")
-            city = detect_city(text)
-            category = detect_category(text, domain)
+        # Technology detection (always run)
+        headers = {k.decode() if isinstance(k, bytes) else k: 
+                   v[0].decode() if isinstance(v[0], bytes) else v[0] 
+                   for k, v in response.headers.items()}
+        technologies = detect_technologies(html=html, url=response.url, headers=headers)
 
-            business = title.split("-")[0].split("|")[0].strip() if title else domain
+        domain = urlparse(response.url).netloc.lower().replace("www.", "")
+        city = detect_city(text)
+        category = detect_category(text, domain)
+        business = title.split("-")[0].split("|")[0].strip() if title else domain
 
-            socials = {}
-            for a in response.css("a::attr(href)").getall():
-                a_lower = a.lower()
-                if "instagram.com" in a_lower:
-                    socials["instagram"] = a
-                elif "t.me" in a_lower or "telegram" in a_lower:
-                    socials["telegram"] = a
-                elif "linkedin.com" in a_lower:
-                    socials["linkedin"] = a
-                elif "twitter.com" in a_lower or "x.com" in a_lower:
-                    socials["twitter"] = a
+        socials = {}
+        for a in response.css("a::attr(href)").getall():
+            a_lower = a.lower()
+            if "instagram.com" in a_lower:
+                socials["instagram"] = a
+            elif "t.me" in a_lower or "telegram" in a_lower:
+                socials["telegram"] = a
+            elif "linkedin.com" in a_lower:
+                socials["linkedin"] = a
+            elif "twitter.com" in a_lower or "x.com" in a_lower:
+                socials["twitter"] = a
 
+        # Yield if we have contacts OR technologies
+        if phones or emails or technologies:
             item = ContactItem()
             item["source_url"] = response.url
             item["domain"] = domain
@@ -97,6 +103,7 @@ class ContactSpider(scrapy.Spider):
             item["category"] = category
             item["city"] = city
             item["socials"] = socials
+            item["technologies"] = technologies
             item["crawled_at"] = datetime.utcnow().isoformat()
             yield item
 
