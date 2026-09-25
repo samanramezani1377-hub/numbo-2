@@ -1,0 +1,7 @@
+Options -Indexes
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^data/ - [F,L]
+  RewriteRule ^lib/ - [F,L]
+  RewriteRule ^config\.php$ - [F,L]
+</IfModule>
