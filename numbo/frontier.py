@@ -100,9 +100,9 @@ class CrawlHistory:
         page = max(int(page), 1)
         per_page = max(int(per_page), 1)
         params = []
-        where = ""
+        where = "WHERE external = 1"
         if query:
-            where = "WHERE source_url LIKE ? OR target_url LIKE ? OR target_domain LIKE ?"
+            where = "WHERE external = 1 AND (source_url LIKE ? OR target_url LIKE ? OR target_domain LIKE ?)"
             value = f"%{query}%"
             params = [value, value, value]
         total = self.conn.execute(f"SELECT COUNT(*) FROM discovered_links {where}", params).fetchone()[0]
