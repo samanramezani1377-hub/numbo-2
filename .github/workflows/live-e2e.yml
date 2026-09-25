@@ -118,6 +118,13 @@ jobs:
           curl --fail --silent http://127.0.0.1:8080/api/stats > stats-pre-live.json
           cat stats-pre-live.json
           cp config.live-backup.json config.json
+          # The fixture UI is only for local E2E. Kill it before starting the public session,
+          # otherwise port 8080 remains occupied and the new live UI cannot bind.
+          if [ -f ui.pid ]; then kill "$(cat ui.pid)" 2>/dev/null || true; fi
+          for i in $(seq 1 20); do
+            if ! curl --silent --show-error http://127.0.0.1:8080/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
 
       - name: Prepare live session
         run: |
