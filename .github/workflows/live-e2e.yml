@@ -136,7 +136,7 @@ jobs:
           echo "Live crawler started."
           curl --fail --silent http://127.0.0.1:8080/api/stats
 
-      - name: Install and configure read-only public gateway
+      - name: Install and configure public live gateway
         run: |
           sudo apt-get update
           sudo apt-get install -y nginx
@@ -146,9 +146,6 @@ jobs:
               listen 8081;
               server_name _;
               location / {
-                  limit_except GET HEAD {
-                      deny all;
-                  }
                   proxy_pass http://127.0.0.1:8080;
                   proxy_http_version 1.1;
                   proxy_set_header Host $host;
@@ -186,7 +183,7 @@ jobs:
             echo
             echo "**Session:** ${{ inputs.live_minutes }} minutes"
             echo
-            echo "The public gateway is intentionally **read-only** (GET/HEAD). The crawler is running on the real GitHub Actions runner."
+            echo "The public URL is a live interactive gateway to the real Numbo runtime running on the GitHub Actions runner."
             echo
             echo "Use Dashboard, Contacts, Logs and Stats to watch the real runtime."
           } >> "$GITHUB_STEP_SUMMARY"
