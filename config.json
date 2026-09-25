@@ -1,0 +1,7 @@
+{
+  "panel_port": 8080,
+  "panel_password": "",
+  "secret": "",
+  "allowed_tlds": [".ir"],
+  "cycle_delay": 300
+}
