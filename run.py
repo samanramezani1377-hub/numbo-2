@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
-"""
-Numbo-2 Continuous Runner
-اجرای مداوم کراولر تا زمانی که با Ctrl+C یا SIGTERM متوقف شود.
-هر دور کامل که تمام شد، بعد از چند دقیقه دوباره شروع می‌کند.
-"""
 import os
 import sys
 import signal
-import time
 import logging
 from scrapy.crawler import CrawlerRunner
 from scrapy.utils.project import get_project_settings
 from twisted.internet import reactor, defer
 from twisted.internet.task import deferLater
+from numbo.config import load as load_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,10 +19,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("numbo-runner")
 
-# فاصله بین دورهای کامل کراول (ثانیه) — قابل تغییر
-CYCLE_DELAY = 300  # 5 دقیقه
+cfg = load_config()
+CYCLE_DELAY = int(cfg.get("cycle_delay") or 300)
 
 running = True
+
 
 def handle_signal(signum, frame):
     global running
@@ -36,8 +32,10 @@ def handle_signal(signum, frame):
     if reactor.running:
         reactor.stop()
 
+
 signal.signal(signal.SIGINT, handle_signal)
 signal.signal(signal.SIGTERM, handle_signal)
+
 
 @defer.inlineCallbacks
 def crawl_cycle(runner):
@@ -57,30 +55,27 @@ def crawl_cycle(runner):
 
     logger.info("Runner stopped.")
 
+
 def main():
     os.makedirs("data", exist_ok=True)
 
     if not os.path.exists("seeds.txt"):
-        logger.error("seeds.txt not found. Create it and add domains.")
+        logger.error("seeds.txt not found.")
         sys.exit(1)
 
     with open("seeds.txt", "r", encoding="utf-8") as f:
         seeds = [l.strip() for l in f if l.strip() and not l.startswith("#")]
     if not seeds:
-        logger.error("seeds.txt is empty. Add at least one domain or URL.")
+        logger.error("seeds.txt is empty.")
         sys.exit(1)
 
     logger.info("Numbo-2 continuous mode started with %d seeds", len(seeds))
-    logger.info("Press Ctrl+C to stop")
-
     settings = get_project_settings()
     runner = CrawlerRunner(settings)
-
     crawl_cycle(runner)
-    reactor.run()  # blocks until stopped
-
+    reactor.run()
     logger.info("Results are in data/numbo.db")
-    logger.info("Run `python export.py` to export CSV/Excel")
+
 
 if __name__ == "__main__":
     main()
