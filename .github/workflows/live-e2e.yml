@@ -118,13 +118,26 @@ jobs:
           curl --fail --silent http://127.0.0.1:8080/api/stats > stats-pre-live.json
           cat stats-pre-live.json
           cp config.live-backup.json config.json
-          # The fixture UI is only for local E2E. Kill it before starting the public session,
-          # otherwise port 8080 remains occupied and the new live UI cannot bind.
-          if [ -f ui.pid ]; then kill "$(cat ui.pid)" 2>/dev/null || true; fi
-          for i in $(seq 1 20); do
-            if ! curl --silent --show-error http://127.0.0.1:8080/health >/dev/null 2>&1; then break; fi
+          # The fixture UI is only for local E2E. Stop the exact process and verify that
+          # port 8080 is really free before starting the public session.
+          if [ -f ui.pid ]; then
+            kill "$(cat ui.pid)" 2>/dev/null || true
+          fi
+          pkill -TERM -f "python start_ui.py" 2>/dev/null || true
+          for i in $(seq 1 30); do
+            if ! (curl --silent --show-error --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1); then
+              break
+            fi
             sleep 1
           done
+          if (curl --silent --show-error --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1); then
+            echo "ERROR: old Numbo UI is still serving on port 8080" >&2
+            exit 1
+          fi
+          if command -v fuser >/dev/null 2>&1; then
+            sudo fuser -k 8080/tcp 2>/dev/null || true
+          fi
+          sleep 1
 
       - name: Prepare live session
         run: |
@@ -137,6 +150,11 @@ jobs:
             sleep 1
           done
           test -s live-health.json
+          python - <<'PY'
+          import json
+          health = json.load(open("live-health.json"))
+          assert health.get("status") == "ok", health
+          PY
           curl --fail --silent -X POST http://127.0.0.1:8080/seeds --data-urlencode "seeds=${{ inputs.seed_url }}"
           curl --fail --silent -X POST http://127.0.0.1:8080/start >/dev/null
           echo "Live seed: ${{ inputs.seed_url }}"
@@ -181,6 +199,50 @@ jobs:
           done
           test -n "$url"
           echo "$url" > live-url.txt
+
+          # Do not publish a tunnel URL unless the public URL actually reaches the
+          # live UI. This catches wrong-port/proxy/500 errors instead of marking E2E green.
+          public_ok=0
+          for i in $(seq 1 30); do
+            if curl --fail --silent --show-error --location --max-time 10 "$url/health" > public-health.json; then
+              if python - <<'PY'
+          import json
+          h = json.load(open("public-health.json"))
+          assert h.get("status") == "ok", h
+          PY
+              then
+                public_ok=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [ "$public_ok" -ne 1 ]; then
+            echo "ERROR: public tunnel does not serve the Numbo UI health endpoint" >&2
+            echo "=== PUBLIC HEALTH RESPONSE ==="
+            cat public-health.json 2>/dev/null || true
+            echo "=== LIVE UI LOG ==="
+            tail -n 100 live-ui.log 2>/dev/null || true
+            echo "=== CLOUDFLARED LOG ==="
+            tail -n 100 cloudflared.log 2>/dev/null || true
+            exit 1
+          fi
+
+          page_ok=0
+          for i in $(seq 1 10); do
+            if curl --fail --silent --show-error --location --max-time 10 "$url/" -o public-index.html; then
+              if grep -qiE "Numbo|داشبورد|مخزن|crawler" public-index.html; then
+                page_ok=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [ "$page_ok" -ne 1 ]; then
+            echo "ERROR: public tunnel does not serve the Numbo dashboard page" >&2
+            head -c 4000 public-index.html 2>/dev/null || true
+            exit 1
+          fi
           {
             echo "## Numbo 2 Live E2E"
             echo
@@ -229,6 +291,8 @@ jobs:
           path: |
             live-url.txt
             live-health.json
+            public-health.json
+            public-index.html
             stats-pre-live.json
             stats-final.json
             data/numbo.db
@@ -245,3 +309,7 @@ jobs:
           if [ -f live-ui.pid ]; then kill "$(cat live-ui.pid)" 2>/dev/null || true; fi
           if [ -f ui.pid ]; then kill "$(cat ui.pid)" 2>/dev/null || true; fi
           if [ -f fixture.pid ]; then kill "$(cat fixture.pid)" 2>/dev/null || true; fi
+          pkill -TERM -f "python start_ui.py" 2>/dev/null || true
+          if command -v fuser >/dev/null 2>&1; then
+            sudo fuser -k 8080/tcp 2>/dev/null || true
+          fi
