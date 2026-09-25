@@ -130,3 +130,53 @@ def extract_business_name(response, domain: str) -> str:
                     return candidate
         return title[:180]
     return domain
+
+
+def extract_address(response, text: str = "") -> Optional[str]:
+    """Extract a conservative business address from semantic HTML and JSON-LD."""
+    candidates = []
+
+    for selector in [
+        "address::text",
+        '[itemprop="streetAddress"]::text',
+        '[itemprop="address"]::text',
+        '[itemprop="postalAddress"]::text',
+        'meta[property="og:street-address"]::attr(content)',
+        'meta[name="address"]::attr(content)',
+    ]:
+        for value in response.css(selector).getall():
+            value = re.sub(r"\s+", " ", (value or "")).strip(" \t\r\n,;|")
+            if 8 <= len(value) <= 300:
+                candidates.append(value)
+
+    for script in response.css('script[type="application/ld+json"]::text').getall():
+        if '"address"' not in script.lower():
+            continue
+        matches = re.findall(
+            r'"streetAddress"\s*:\s*"([^"]{5,200})"',
+            script,
+            flags=re.I,
+        )
+        for value in matches:
+            value = re.sub(r"\\u[0-9a-fA-F]{4}", " ", value)
+            value = re.sub(r"\s+", " ", value).strip(" ,;|")
+            if 8 <= len(value) <= 300:
+                candidates.append(value)
+
+    # Common Persian/English contact-page labels. Keep the captured text
+    # deliberately bounded so menus and unrelated body text are not returned.
+    label_pattern = re.compile(
+        r"(?:آدرس|نشانی|آدرس دفتر|نشانی دفتر|address|office address)\s*[:：\-]?\s*([^\n|]{8,300})",
+        flags=re.I,
+    )
+    for match in label_pattern.finditer(text or ""):
+        value = re.sub(r"\s+", " ", match.group(1)).strip(" ,;|")
+        if 8 <= len(value) <= 300:
+            candidates.append(value)
+
+    # Prefer the longest candidate because semantic address nodes are often
+    # split into short street/region fragments.
+    if not candidates:
+        return None
+    unique = list(dict.fromkeys(candidates))
+    return max(unique, key=len)
