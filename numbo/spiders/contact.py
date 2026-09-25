@@ -1,7 +1,7 @@
 import os
 import re
 import scrapy
-from urllib.parse import urlparse, urljoin, urldefrag
+from urllib.parse import urlparse, urljoin, urldefrag, urlunparse, parse_qsl, urlencode
 from datetime import datetime
 from numbo.items import ContactItem
 from numbo.utils.phone import extract_phones
@@ -14,11 +14,13 @@ from numbo.config import load as load_config
 
 class ContactSpider(scrapy.Spider):
     name = "contact"
-    custom_settings = {"DEPTH_LIMIT": 3}
+    custom_settings = {"DEPTH_LIMIT": 4}
 
     IMPORTANT_PATHS = ("contact", "contact-us", "about", "about-us", "تماس", "درباره", "tamas")
     SKIP_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
                        ".rar", ".mp4", ".mp3", ".css", ".js", ".woff", ".woff2")
+    TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+                       "gclid", "fbclid", "mc_cid", "mc_eid"}
 
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -37,13 +39,38 @@ class ContactSpider(scrapy.Spider):
                     domain = (urlparse(line).hostname or "").lower().removeprefix("www.")
                     if not domain or (self.allowed_tlds and not any(domain.endswith(t) for t in self.allowed_tlds)):
                         continue
-                    line, _ = urldefrag(line)
+                    line = self._canonical_url(line)
                     if line not in self.start_urls:
                         self.start_urls.append(line)
                     if domain not in self.allowed_domains:
                         self.allowed_domains.append(domain)
         if not self.start_urls:
             self.logger.warning("No valid seeds found in %s (after TLD filter).", seeds_file)
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        spider.stats = crawler.stats
+        return spider
+
+    def start_requests(self):
+        for seed in self.start_urls:
+            yield scrapy.Request(seed, callback=self.parse, priority=50)
+            parsed = urlparse(seed)
+            for path in ("/robots.txt", "/sitemap.xml", "/sitemap_index.xml"):
+                yield scrapy.Request(urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")),
+                                     callback=self.parse_aux, priority=40, dont_filter=False)
+
+    def _canonical_url(self, url):
+        url, _ = urldefrag(url)
+        parsed = urlparse(url)
+        query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+                 if k.lower() not in self.TRACKING_PARAMS]
+        path = parsed.path or "/"
+        if path != "/":
+            path = path.rstrip("/")
+        return urlunparse((parsed.scheme.lower(), (parsed.hostname or "").lower(),
+                           path, "", urlencode(sorted(query)), ""))
 
     def is_allowed_domain(self, domain: str) -> bool:
         domain = (domain or "").lower().removeprefix("www.")
@@ -53,7 +80,7 @@ class ContactSpider(scrapy.Spider):
     def _links(self, response):
         seen = set()
         for href in response.css("a::attr(href)").getall():
-            full = urldefrag(urljoin(response.url, href))[0]
+            full = self._canonical_url(urljoin(response.url, href))
             parsed = urlparse(full)
             if parsed.scheme not in ("http", "https") or not self.is_allowed_domain(parsed.hostname or ""):
                 continue
@@ -63,13 +90,25 @@ class ContactSpider(scrapy.Spider):
                 seen.add(full)
                 yield full
 
+    def parse_aux(self, response):
+        ctype = (response.headers.get("Content-Type") or b"").decode("latin1").lower()
+        body = response.text or ""
+        if response.url.lower().endswith((".xml", "sitemap.xml", "sitemap_index.xml")) or "xml" in ctype:
+            for loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", body, flags=re.I | re.S):
+                loc = self._canonical_url(loc.strip())
+                parsed = urlparse(loc)
+                if self.is_allowed_domain(parsed.hostname or ""):
+                    if loc.lower().endswith(".xml"):
+                        yield scrapy.Request(loc, callback=self.parse_aux, priority=30)
+                    else:
+                        yield scrapy.Request(loc, callback=self.parse, priority=15)
+
     def parse(self, response):
         text = " ".join(t.strip() for t in response.css("body ::text, body::text").getall() if t.strip())
         html = response.text or ""
         title = response.css("title::text").get(default="").strip()
 
         phones = extract_phones(text)
-        # Also inspect hrefs because tel: links are high-confidence evidence.
         tel_phones = []
         for href in response.css('a[href^="tel:"]::attr(href)').getall():
             tel_phones.extend(extract_phones(href[4:]))
@@ -106,7 +145,7 @@ class ContactSpider(scrapy.Spider):
         if city: quality += 0.10
 
         if phones or emails or technologies or socials:
-            item = ContactItem(
+            yield ContactItem(
                 source_url=response.url,
                 domain=domain,
                 title=title,
@@ -122,7 +161,6 @@ class ContactSpider(scrapy.Spider):
                 quality_score=round(min(quality, 1.0), 2),
                 evidence=evidence,
             )
-            yield item
 
         for full in self._links(response):
             path = urlparse(full).path.lower()
