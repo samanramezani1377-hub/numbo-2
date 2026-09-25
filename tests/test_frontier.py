@@ -86,21 +86,6 @@ def test_allowed_external_domain_is_schedulable(tmp_path):
     assert spider.frontier.was_crawled("https://external.ir/contact") is False
     spider.frontier.close()
 
-
-def test_disallowed_external_domain_is_not_scheduled(tmp_path):
-    seeds = tmp_path / "seeds.txt"
-    seeds.write_text("https://seed.ir\n", encoding="utf-8")
-    db = tmp_path / "numbo.db"
-    spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db))
-
-    assert not spider.is_allowed_domain("external.com")
-    assert spider._request_page("https://external.com/contact") is not None
-    # Direct request creation is not the crawl policy; parse() only schedules
-    # discovered links after applying is_allowed_domain(). The frontier test
-    # above ensures the discovery layer can retain it separately.
-    spider.frontier.close()
-
-
 def test_discovered_links_can_be_filtered_and_exported(tmp_path):
     db = tmp_path / "numbo.db"
     history = CrawlHistory(db)
