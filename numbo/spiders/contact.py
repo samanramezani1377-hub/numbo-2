@@ -7,7 +7,7 @@ from numbo.items import ContactItem
 from numbo.utils.phone import extract_phones
 from numbo.utils.category import (
     detect_city, detect_category, extract_emails, extract_socials,
-    extract_business_name,
+    extract_business_name, extract_address,
 )
 from numbo.utils.tech import detect_technologies
 from numbo.config import load as load_config
