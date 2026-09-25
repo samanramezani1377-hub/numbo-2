@@ -7,22 +7,25 @@ _DIGIT_MAP = str.maketrans(
 )
 
 # High-confidence Iranian mobile and fixed-line patterns only.
-# Generic international-number matching is intentionally removed because it
-# turns prices, SKUs, dates and dimensions into fake phone numbers.
+# Local numbers must start with 0; international numbers must use +98/0098.
+# This prevents prices, SKUs, dates and dimensions from being extracted.
 IR_MOBILE = re.compile(
-    r"(?<!\d)(?:\+?98|0098|0)?9(?:0[1-5]|1[0-9]|2[0-2]|3[0-9]|9[0-9])\d{8}(?!\d)"
+    r"(?<!\d)(?:0(?:9(?:0[1-5]|1[0-9]|2[0-2]|3[0-9]|9[0-9])\d{7})|"
+    r"(?:\+?98|0098)9(?:0[1-5]|1[0-9]|2[0-2]|3[0-9]|9[0-9])\d{7})(?!\d)"
 )
 IR_LANDLINE = re.compile(
-    r"(?<!\d)(?:\+?98|0098|0)?"
-    r"(?:21|26|25|31|41|51|61|71|81|11|13|17|34|35|38|44|45|54|56|58|74|76|77|83|84|86|87)"
-    r"\d{8}(?!\d)"
+    r"(?<!\d)(?:0(?:21|26|25|31|41|51|61|71|81|11|13|17|34|35|38|44|45|54|56|58|74|76|77|83|84|86|87)\d{8}|"
+    r"(?:\+?98|0098)(?:21|26|25|31|41|51|61|71|81|11|13|17|34|35|38|44|45|54|56|58|74|76|77|83|84|86|87)\d{8})(?!\d)"
 )
+
 
 def normalize_digits(value: str) -> str:
     return (value or "").translate(_DIGIT_MAP)
 
+
 def _digits(value: str) -> str:
     return re.sub(r"\D", "", normalize_digits(value))
+
 
 def normalize_iranian(phone: str) -> str:
     raw = normalize_digits(phone).strip()
@@ -37,6 +40,7 @@ def normalize_iranian(phone: str) -> str:
         return digits
     return raw
 
+
 def _valid_mobile(value: str) -> bool:
     digits = _digits(value)
     if digits.startswith("0098"):
@@ -48,6 +52,7 @@ def _valid_mobile(value: str) -> bool:
     return len(digits) == 11 and bool(re.fullmatch(
         r"09(?:0[1-5]|1[0-9]|2[0-2]|3[0-9]|9[0-9])\d{7}", digits
     ))
+
 
 def _valid_landline(value: str) -> bool:
     digits = _digits(value)
@@ -61,6 +66,7 @@ def _valid_landline(value: str) -> bool:
         r"0(?:21|26|25|31|41|51|61|71|81|11|13|17|34|35|38|44|45|54|56|58|74|76|77|83|84|86|87)\d{8}",
         digits,
     ))
+
 
 def extract_phones(text: str) -> List[str]:
     normalized = normalize_digits(text or "")
