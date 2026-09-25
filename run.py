@@ -2,14 +2,17 @@
 """
 Numbo-2 Continuous Runner
 اجرای مداوم کراولر تا زمانی که با Ctrl+C یا SIGTERM متوقف شود.
+هر دور کامل که تمام شد، بعد از چند دقیقه دوباره شروع می‌کند.
 """
 import os
 import sys
 import signal
 import time
 import logging
-from scrapy.crawler import CrawlerProcess
+from scrapy.crawler import CrawlerRunner
 from scrapy.utils.project import get_project_settings
+from twisted.internet import reactor, defer
+from twisted.internet.task import deferLater
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,15 +24,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger("numbo-runner")
 
+# فاصله بین دورهای کامل کراول (ثانیه) — قابل تغییر
+CYCLE_DELAY = 300  # 5 دقیقه
+
 running = True
 
 def handle_signal(signum, frame):
     global running
     logger.info("Received signal %s — shutting down gracefully...", signum)
     running = False
+    if reactor.running:
+        reactor.stop()
 
 signal.signal(signal.SIGINT, handle_signal)
 signal.signal(signal.SIGTERM, handle_signal)
+
+@defer.inlineCallbacks
+def crawl_cycle(runner):
+    while running:
+        logger.info("=== Starting new crawl cycle ===")
+        try:
+            yield runner.crawl("contact", seeds_file="seeds.txt")
+            logger.info("Cycle finished successfully")
+        except Exception as e:
+            logger.error("Cycle error: %s", e)
+
+        if not running:
+            break
+
+        logger.info("Sleeping %d seconds before next cycle...", CYCLE_DELAY)
+        yield deferLater(reactor, CYCLE_DELAY, lambda: None)
+
+    logger.info("Runner stopped.")
 
 def main():
     os.makedirs("data", exist_ok=True)
@@ -44,19 +70,16 @@ def main():
         logger.error("seeds.txt is empty. Add at least one domain or URL.")
         sys.exit(1)
 
-    logger.info("Numbo-2 starting with %d seeds", len(seeds))
+    logger.info("Numbo-2 continuous mode started with %d seeds", len(seeds))
     logger.info("Press Ctrl+C to stop")
 
     settings = get_project_settings()
-    process = CrawlerProcess(settings)
+    runner = CrawlerRunner(settings)
 
-    # Run the spider once. For continuous mode we can loop later if needed.
-    # Current design: one full crawl of the seeds + limited depth.
-    # To keep process alive longer, user can re-run or extend seeds.
-    process.crawl("contact", seeds_file="seeds.txt")
-    process.start()  # blocks until finished
+    crawl_cycle(runner)
+    reactor.run()  # blocks until stopped
 
-    logger.info("Crawl finished. Results saved in data/numbo.db")
+    logger.info("Results are in data/numbo.db")
     logger.info("Run `python export.py` to export CSV/Excel")
 
 if __name__ == "__main__":
