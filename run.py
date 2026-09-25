@@ -19,6 +19,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("numbo-runner")
 
+os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "numbo.settings")
+
 cfg = load_config()
 CYCLE_DELAY = int(cfg.get("cycle_delay") or 300)
 
