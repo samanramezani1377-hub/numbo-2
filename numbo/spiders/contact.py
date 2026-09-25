@@ -6,6 +6,7 @@ from numbo.items import ContactItem
 from numbo.utils.phone import extract_phones
 from numbo.utils.category import detect_city, detect_category, extract_emails
 from numbo.utils.tech import detect_technologies
+from numbo.config import load as load_config
 
 
 class ContactSpider(scrapy.Spider):
@@ -20,9 +21,8 @@ class ContactSpider(scrapy.Spider):
         self.start_urls = []
         self.allowed_domains = []
 
-        from scrapy.utils.project import get_project_settings
-        settings = get_project_settings()
-        self.allowed_tlds = [t.lower().strip() for t in settings.getlist("ALLOWED_TLDS") if t.strip()]
+        cfg = load_config()
+        self.allowed_tlds = [t.lower().strip() for t in (cfg.get("allowed_tlds") or []) if str(t).strip()]
 
         if os.path.exists(seeds_file):
             with open(seeds_file, "r", encoding="utf-8") as f:
@@ -47,8 +47,8 @@ class ContactSpider(scrapy.Spider):
 
         if not self.start_urls:
             self.logger.warning(
-                "No valid seeds found in %s (after TLD filter). "
-                "Check seeds.txt and ALLOWED_TLDS setting.", seeds_file
+                "No valid seeds found in %s (after TLD filter).",
+                seeds_file,
             )
 
     def is_allowed_domain(self, domain: str) -> bool:
@@ -67,10 +67,11 @@ class ContactSpider(scrapy.Spider):
         phones = extract_phones(text)
         emails = extract_emails(text)
 
-        # Technology detection (always run)
-        headers = {k.decode() if isinstance(k, bytes) else k: 
-                   v[0].decode() if isinstance(v[0], bytes) else v[0] 
-                   for k, v in response.headers.items()}
+        headers = {
+            k.decode() if isinstance(k, bytes) else k:
+            v[0].decode() if isinstance(v[0], bytes) else v[0]
+            for k, v in response.headers.items()
+        }
         technologies = detect_technologies(html=html, url=response.url, headers=headers)
 
         domain = urlparse(response.url).netloc.lower().replace("www.", "")
@@ -90,7 +91,6 @@ class ContactSpider(scrapy.Spider):
             elif "twitter.com" in a_lower or "x.com" in a_lower:
                 socials["twitter"] = a
 
-        # Yield if we have contacts OR technologies
         if phones or emails or technologies:
             item = ContactItem()
             item["source_url"] = response.url
@@ -113,12 +113,10 @@ class ContactSpider(scrapy.Spider):
             if parsed.scheme not in ("http", "https"):
                 continue
             domain = parsed.netloc.lower().replace("www.", "")
-
             if not self.is_allowed_domain(domain):
                 continue
-
             path = parsed.path.lower()
-            if any(k in path for k in ["contact", "about", "تماس", "درباره", "ارتباط"]):
+            if any(k in path for k in ["contact", "about", "tamas"]):
                 yield response.follow(full, callback=self.parse, priority=10)
             else:
                 yield response.follow(full, callback=self.parse)
