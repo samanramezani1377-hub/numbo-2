@@ -15,8 +15,10 @@ class ValidationPipeline:
         socials = a.get("socials") or {}
         if not phones and not emails and not techs and not socials:
             raise DropItem("No useful contact, technology or social data")
-        if any(len(p) < 8 for p in phones):
+        if any(not isinstance(p, str) or len(p) < 8 for p in phones):
             raise DropItem("Invalid normalized phone")
+        if any("@" not in e or len(e) > 254 for e in emails):
+            raise DropItem("Invalid email")
         return item
 
 class DeduplicationPipeline:
@@ -28,20 +30,23 @@ class DeduplicationPipeline:
         phones = list(dict.fromkeys(a.get("phones") or []))
         emails = list(dict.fromkeys(e.lower() for e in (a.get("emails") or [])))
         domain = (a.get("domain") or "").lower()
+
         new_phones = [p for p in phones if p not in self.seen_phones]
         new_emails = [e for e in emails if e not in self.seen_emails]
+        socials = a.get("socials") or {}
+        techs = a.get("technologies") or []
 
-        # Keep a page if it contributes new evidence. Otherwise only one technology/social snapshot per domain.
-        has_new_social = bool(a.get("socials"))
-        if not new_phones and not new_emails and not has_new_social and domain in self.seen_domains:
+        # Drop only pages that add no new contact/evidence. Preserve the complete
+        # contact set on pages that do contribute new information.
+        contributes = bool(new_phones or new_emails or socials or techs)
+        if not contributes and domain in self.seen_domains:
             raise DropItem("Duplicate domain evidence")
 
-        self.seen_phones.update(new_phones)
-        self.seen_emails.update(new_emails)
+        self.seen_phones.update(phones)
+        self.seen_emails.update(emails)
         if domain:
             self.seen_domains.add(domain)
-
-        a["phones"], a["emails"] = new_phones, new_emails
+        a["phones"], a["emails"] = phones, emails
         return item
 
 class SQLitePipeline:
@@ -54,6 +59,7 @@ class SQLitePipeline:
         self.conn = sqlite3.connect(self.db_path, timeout=30)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS contacts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,11 +80,7 @@ class SQLitePipeline:
                 UNIQUE(source_url, phones)
             )
         """)
-        migrations = [
-            ("quality_score", "REAL"),
-            ("evidence", "TEXT"),
-        ]
-        for name, typ in migrations:
+        for name, typ in [("quality_score", "REAL"), ("evidence", "TEXT")]:
             try:
                 self.conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} {typ}")
             except sqlite3.OperationalError:
@@ -101,7 +103,8 @@ class SQLitePipeline:
             a.get("city"), json.dumps(a.get("socials") or {}, ensure_ascii=False),
             format_technologies(a.get("technologies") or []),
             a.get("crawled_at") or datetime.utcnow().isoformat(),
-            float(a.get("quality_score") or 0), json.dumps(a.get("evidence") or {}, ensure_ascii=False),
+            float(a.get("quality_score") or 0),
+            json.dumps(a.get("evidence") or {}, ensure_ascii=False),
         )
         try:
             self.conn.execute("""
