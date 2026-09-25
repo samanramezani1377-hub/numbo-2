@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Numbo-2 Web UI
-رابط کاربری مدیریت کراولر
-"""
 import os
 import sys
 import sqlite3
@@ -10,29 +6,33 @@ import subprocess
 import signal
 import time
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
-from fastapi import FastAPI, Request, Form, BackgroundTasks
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-import uvicorn
+from starlette.middleware.sessions import SessionMiddleware
 
-# مسیر ریشه پروژه
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
+load_dotenv(BASE_DIR / ".env")
+
+from numbo.config import load as load_config, save as save_config  # noqa: E402
 
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "numbo.db"
 SEEDS_PATH = BASE_DIR / "seeds.txt"
-SETTINGS_PATH = BASE_DIR / "numbo" / "settings.py"
 PID_FILE = DATA_DIR / "crawler.pid"
 LOG_FILE = BASE_DIR / "numbo.log"
 
-app = FastAPI(title="Numbo-2 Control Panel")
-templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+cfg0 = load_config()
+SECRET = os.getenv("NUMBO_SECRET") or cfg0.get("secret") or "numbo-dev-secret"
+PANEL_PASSWORD = os.getenv("NUMBO_PANEL_PASSWORD") or cfg0.get("panel_password") or ""
 
+app = FastAPI(title="Numbo-2 Control Panel")
+app.add_middleware(SessionMiddleware, secret_key=SECRET, same_site="lax")
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 os.makedirs(DATA_DIR, exist_ok=True)
 
 
@@ -49,18 +49,18 @@ def is_crawler_running() -> bool:
         return False
     try:
         pid = int(PID_FILE.read_text().strip())
-        os.kill(pid, 0)  # check if process exists
+        os.kill(pid, 0)
         return True
     except (ValueError, ProcessLookupError, PermissionError):
-        if PID_FILE.exists():
-            PID_FILE.unlink(missing_ok=True)
+        PID_FILE.unlink(missing_ok=True)
         return False
 
 
 def get_stats():
+    empty = {"total": 0, "phones": 0, "emails": 0, "wordpress": 0, "woocommerce": 0, "cities": 0}
     conn = get_db()
     if not conn:
-        return {"total": 0, "phones": 0, "emails": 0, "wordpress": 0, "woocommerce": 0, "cities": 0}
+        return empty
     try:
         total = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
         phones = conn.execute("SELECT COUNT(*) FROM contacts WHERE phones IS NOT NULL AND phones != ''").fetchone()[0]
@@ -76,6 +76,8 @@ def get_stats():
             "woocommerce": woocommerce,
             "cities": cities,
         }
+    except Exception:
+        return empty
     finally:
         conn.close()
 
@@ -86,32 +88,59 @@ def read_seeds() -> str:
     return ""
 
 
-def read_allowed_tlds() -> str:
-    if not SETTINGS_PATH.exists():
-        return ".ir"
-    content = SETTINGS_PATH.read_text(encoding="utf-8")
-    for line in content.splitlines():
-        if line.strip().startswith("ALLOWED_TLDS"):
-            # ساده استخراج
-            if "[]" in line:
-                return ""
-            import re
-            matches = re.findall(r'["'](\.[^"']+)["']', line)
-            return ",".join(matches) if matches else ".ir"
-    return ".ir"
+def logged_in(request: Request) -> bool:
+    if not PANEL_PASSWORD:
+        return True
+    return bool(request.session.get("ok"))
+
+
+@app.middleware("http")
+async def auth_mw(request: Request, call_next):
+    path = request.url.path
+    if path in ("/login", "/health") or path.startswith("/static"):
+        return await call_next(request)
+    if logged_in(request):
+        return await call_next(request)
+    if path.startswith("/api"):
+        return JSONResponse({"error": "auth"}, status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = ""):
+    if logged_in(request):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+
+
+@app.post("/login")
+async def login_submit(request: Request, password: str = Form("")):
+    if PANEL_PASSWORD and password == PANEL_PASSWORD:
+        request.session["ok"] = True
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": "wrong"}, status_code=401)
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    stats = get_stats()
-    running = is_crawler_running()
-    seeds = read_seeds()
-    tlds = read_allowed_tlds()
+    cfg = load_config()
+    tlds = ",".join(cfg.get("allowed_tlds") or [])
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "stats": stats,
-        "running": running,
-        "seeds": seeds,
+        "stats": get_stats(),
+        "running": is_crawler_running(),
+        "seeds": read_seeds(),
         "tlds": tlds,
     })
 
@@ -120,7 +149,6 @@ async def dashboard(request: Request):
 async def start_crawler():
     if is_crawler_running():
         return RedirectResponse("/", status_code=303)
-    # start in background
     proc = subprocess.Popen(
         [sys.executable, str(BASE_DIR / "run.py")],
         cwd=str(BASE_DIR),
@@ -159,21 +187,17 @@ async def save_seeds(seeds: str = Form(...)):
 
 @app.post("/tlds")
 async def save_tlds(tlds: str = Form(...)):
-    tlds_clean = [t.strip() for t in tlds.split(",") if t.strip()]
-    if not tlds_clean:
-        tlds_list = "[]"
-    else:
-        tlds_list = "[" + ", ".join(f'"{t}"' for t in tlds_clean) + "]"
-
-    content = SETTINGS_PATH.read_text(encoding="utf-8")
-    import re
-    new_content = re.sub(
-        r"ALLOWED_TLDS\s*=\s*\[.*?\]",
-        f"ALLOWED_TLDS = {tlds_list}",
-        content,
-        flags=re.DOTALL,
-    )
-    SETTINGS_PATH.write_text(new_content, encoding="utf-8")
+    cfg = load_config()
+    cleaned = []
+    for t in tlds.split(","):
+        t = t.strip().lower()
+        if not t:
+            continue
+        if not t.startswith("."):
+            t = "." + t
+        cleaned.append(t)
+    cfg["allowed_tlds"] = cleaned
+    save_config(cfg)
     return RedirectResponse("/", status_code=303)
 
 
@@ -188,20 +212,13 @@ async def list_contacts(
     conn = get_db()
     if not conn:
         return templates.TemplateResponse("contacts.html", {
-            "request": request,
-            "rows": [],
-            "page": 1,
-            "total_pages": 0,
-            "q": q or "",
-            "tech": tech or "",
-            "city": city or "",
+            "request": request, "rows": [], "page": 1, "total_pages": 0,
+            "q": q or "", "tech": tech or "", "city": city or "", "total": 0,
         })
-
     per_page = 50
-    offset = (page - 1) * per_page
+    offset = (max(page, 1) - 1) * per_page
     where = []
     params = []
-
     if q:
         where.append("(domain LIKE ? OR phones LIKE ? OR emails LIKE ? OR business_name LIKE ?)")
         params.extend([f"%{q}%"] * 4)
@@ -211,27 +228,17 @@ async def list_contacts(
     if city:
         where.append("city = ?")
         params.append(city)
-
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-
     total = conn.execute(f"SELECT COUNT(*) FROM contacts {where_sql}", params).fetchone()[0]
     rows = conn.execute(
         f"SELECT * FROM contacts {where_sql} ORDER BY crawled_at DESC LIMIT ? OFFSET ?",
         params + [per_page, offset],
     ).fetchall()
     conn.close()
-
     total_pages = max(1, (total + per_page - 1) // per_page)
-
     return templates.TemplateResponse("contacts.html", {
-        "request": request,
-        "rows": rows,
-        "page": page,
-        "total_pages": total_pages,
-        "q": q or "",
-        "tech": tech or "",
-        "city": city or "",
-        "total": total,
+        "request": request, "rows": rows, "page": page, "total_pages": total_pages,
+        "q": q or "", "tech": tech or "", "city": city or "", "total": total,
     })
 
 
@@ -239,7 +246,6 @@ async def list_contacts(
 async def export_data():
     from export import main as do_export
     do_export()
-    # آخرین فایل excel را پیدا کن
     files = sorted(DATA_DIR.glob("contacts_*.xlsx"), key=os.path.getmtime, reverse=True)
     if files:
         return FileResponse(files[0], filename=files[0].name)
@@ -255,11 +261,6 @@ async def api_stats():
 async def view_logs(request: Request):
     content = ""
     if LOG_FILE.exists():
-        # آخرین ۱۰۰ خط
         lines = LOG_FILE.read_text(encoding="utf-8", errors="ignore").splitlines()
-        content = "\n".join(lines[-100:])
+        content = "\n".join(lines[-150:])
     return templates.TemplateResponse("logs.html", {"request": request, "logs": content})
-
-
-if __name__ == "__main__":
-    uvicorn.run("ui.app:app", host="0.0.0.0", port=8080, reload=False)
