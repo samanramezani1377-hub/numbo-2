@@ -46,7 +46,16 @@ def test_external_allowed_tld_links_are_discovered(tmp_path):
 
     links = list(spider._links(response))
     assert "https://external.ir/contact" in links
-    assert "https://external.com/contact" not in links
+    assert "https://external.com/contact" in links
+
+    rows, total = spider.frontier.list_discovered_links()
+    assert total == 2
+    targets = {row[1] for row in rows}
+    assert "https://external.com/contact" in targets
+    assert "https://external.ir/contact" in targets
+    crawlable = {row[1]: row[3] for row in rows}
+    assert crawlable["https://external.com/contact"] == 0
+    assert crawlable["https://external.ir/contact"] == 1
     assert "https://seed.ir/about" in links
     spider.frontier.close()
 
