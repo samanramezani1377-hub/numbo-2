@@ -102,3 +102,36 @@ def test_discovered_links_can_be_filtered_and_exported(tmp_path):
     assert "https://blocked.com" in content
     assert "https://allowed.ir" not in content
     history.close()
+
+
+def test_explicit_seed_bypasses_global_tld_only_for_that_seed(tmp_path):
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("https://example.com\n", encoding="utf-8")
+    db = tmp_path / "numbo.db"
+    spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db))
+
+    assert spider.start_urls == ["https://example.com/"]
+    assert spider.is_allowed_domain("example.com")
+    assert not spider.is_allowed_domain("other.com")
+    assert spider.is_allowed_domain("allowed.ir")
+
+    response = HtmlResponse(
+        url="https://example.com/",
+        request=Request("https://example.com/"),
+        body=b"""
+            <a href="https://example.com/about">same seed domain</a>
+            <a href="https://other.com/contact">unrelated com</a>
+            <a href="https://allowed.ir/contact">globally allowed</a>
+        """,
+        encoding="utf-8",
+    )
+    links = list(spider._links(response))
+    assert "https://example.com/about" in links
+    assert "https://other.com/contact" in links
+    assert "https://allowed.ir/contact" in links
+
+    crawlable = {row[1]: row[3] for row in spider.frontier.list_discovered_links()[0]}
+    assert crawlable["https://example.com/about"] == 1
+    assert crawlable["https://other.com/contact"] == 0
+    assert crawlable["https://allowed.ir/contact"] == 1
+    spider.frontier.close()
