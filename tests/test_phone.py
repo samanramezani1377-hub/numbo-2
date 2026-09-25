@@ -40,3 +40,9 @@ def test_spider_like_mailto_and_tel_inputs():
     from numbo.utils.category import extract_emails
     assert "09121234567" in extract_phones("+989121234567")
     assert extract_emails("Sales@Example.ir") == ["sales@example.ir"]
+
+
+def test_formatted_iranian_phones():
+    assert "09121234567" in extract_phones("موبایل: 0912-123-4567")
+    assert "02112345678" in extract_phones("دفتر: 021 1234 5678")
+    assert "09121234567" in extract_phones("موبایل: +98 912 123 4567")
