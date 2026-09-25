@@ -1,3 +1,4 @@
+import os
 import scrapy
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
@@ -35,23 +36,19 @@ class ContactSpider(scrapy.Spider):
             self.logger.warning("No seeds found in %s. Add domains to seeds.txt", seeds_file)
 
     def parse(self, response):
-        # Extract contact info from current page
         text = " ".join(response.css("::text").getall())
         title = response.css("title::text").get(default="").strip()
 
         phones = extract_phones(text)
         emails = extract_emails(text)
 
-        # Prefer contact/about pages content
         if phones or emails:
             domain = urlparse(response.url).netloc.lower().replace("www.", "")
             city = detect_city(text)
             category = detect_category(text, domain)
 
-            # Simple business name heuristic
             business = title.split("-")[0].split("|")[0].strip() if title else domain
 
-            # Social links
             socials = {}
             for a in response.css("a::attr(href)").getall():
                 a_lower = a.lower()
@@ -70,7 +67,7 @@ class ContactSpider(scrapy.Spider):
             item["title"] = title
             item["phones"] = phones
             item["emails"] = emails
-            item["address"] = None  # can be improved later
+            item["address"] = None
             item["business_name"] = business
             item["category"] = category
             item["city"] = city
@@ -78,7 +75,6 @@ class ContactSpider(scrapy.Spider):
             item["crawled_at"] = datetime.utcnow().isoformat()
             yield item
 
-        # Follow internal links (limited depth handled by settings)
         for href in response.css("a::attr(href)").getall():
             full = urljoin(response.url, href)
             parsed = urlparse(full)
@@ -86,12 +82,8 @@ class ContactSpider(scrapy.Spider):
                 continue
             domain = parsed.netloc.lower().replace("www.", "")
             if domain in self.allowed_domains:
-                # Prioritize contact-like pages
                 path = parsed.path.lower()
                 if any(k in path for k in ["contact", "about", "تماس", "درباره", "ارتباط"]):
                     yield response.follow(full, callback=self.parse, priority=10)
                 else:
                     yield response.follow(full, callback=self.parse)
-
-
-import os  # placed at end to keep import order clean in this single file
