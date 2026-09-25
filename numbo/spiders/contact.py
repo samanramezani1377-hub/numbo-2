@@ -23,9 +23,11 @@ class ContactSpider(scrapy.Spider):
                        "gclid", "fbclid", "mc_cid", "mc_eid"}
 
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
+        page_budget_arg = kwargs.pop("page_budget", None)
         super().__init__(*args, **kwargs)
         self.seeds_file = seeds_file
-        self.page_budget = max(1, int(kwargs.pop("page_budget", self.settings.getint("NUMBO_PAGE_BUDGET", 20))))
+        default_budget = self.custom_settings.get("NUMBO_PAGE_BUDGET", 20)
+        self.page_budget = max(1, int(page_budget_arg if page_budget_arg is not None else default_budget))
         self.start_urls, self.allowed_domains = [], []
         self.site_pages = {}
         self.allowed_tlds = [t.lower().strip() for t in
@@ -124,7 +126,7 @@ class ContactSpider(scrapy.Spider):
         ctype = (response.headers.get("Content-Type") or b"").decode("latin1").lower()
         body = response.text or ""
         if response.url.lower().endswith((".xml", "sitemap.xml", "sitemap_index.xml")) or "xml" in ctype:
-            for loc in re.findall(r"<loc>s*(.*?)s*</loc>", body, flags=re.I | re.S):
+            for loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", body, flags=re.I | re.S):
                 loc = self._canonical_url(loc.strip())
                 parsed = urlparse(loc)
                 if self.is_allowed_domain(parsed.hostname or ""):
