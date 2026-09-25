@@ -12,6 +12,8 @@ from datetime import datetime
 
 import pandas as pd
 
+from numbo.utils.tech import TECH_ORDER, sort_technologies
+
 DB_PATH = os.path.join("data", "numbo.db")
 OUT_DIR = "data"
 
@@ -44,6 +46,36 @@ def _expand_column(df, source, prefix, separator=","):
         df[f"{prefix}_{index + 1}"] = values.map(
             lambda items, i=index: items[i] if i < len(items) else ""
         )
+    return df
+
+
+def _expand_technologies_fixed(df):
+    """Expand technologies into stable columns shared by every exported row."""
+    if "technologies" not in df.columns:
+        return df
+
+    parsed = []
+    discovered = []
+    for value in df["technologies"]:
+        names = []
+        for item in _split_values(value, separator=";"):
+            # Stored data may come from older versions with confidence suffixes.
+            name = item.split("(", 1)[0].strip()
+            if name and name not in names:
+                names.append(name)
+            if name and name not in discovered:
+                discovered.append(name)
+        parsed.append(names)
+
+    known = [name for name in TECH_ORDER if name in discovered]
+    unknown = sorted(name for name in discovered if name not in set(TECH_ORDER))
+    columns = known + unknown
+
+    df = df.drop(columns=["technologies"])
+    for index, name in enumerate(columns, start=1):
+        df[f"technology_{index}"] = [
+            name if name in names else "" for names in parsed
+        ]
     return df
 
 
@@ -234,8 +266,9 @@ def prepare_export_dataframe(df):
     df = _expand_column(df, "phones", "phone")
     df = _expand_column(df, "emails", "email")
 
-    # Site technology/structure: each detected technology has its own cell.
-    df = _expand_column(df, "technologies", "technology", separator=";")
+    # Technologies use stable dataset-wide positions: a given technology
+    # never moves between technology_1, technology_2, ... for different rows.
+    df = _expand_technologies_fixed(df)
 
     # Social networks: one column per network.
     df = _expand_socials(df)
