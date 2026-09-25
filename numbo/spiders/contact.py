@@ -11,6 +11,7 @@ from numbo.utils.category import (
 )
 from numbo.utils.tech import detect_technologies
 from numbo.config import load as load_config
+from numbo.frontier import CrawlHistory
 
 class ContactSpider(scrapy.Spider):
     name = "contact"
@@ -24,12 +25,14 @@ class ContactSpider(scrapy.Spider):
 
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
         page_budget_arg = kwargs.pop("page_budget", None)
+        frontier_db = kwargs.pop("frontier_db", os.path.join("data", "numbo.db"))
         super().__init__(*args, **kwargs)
         self.seeds_file = seeds_file
         default_budget = self.custom_settings.get("NUMBO_PAGE_BUDGET", 20)
         self.page_budget = max(1, int(page_budget_arg if page_budget_arg is not None else default_budget))
         self.start_urls, self.allowed_domains = [], []
         self.site_pages = {}
+        self.frontier = CrawlHistory(frontier_db)
         self.allowed_tlds = [t.lower().strip() for t in
                              (load_config().get("allowed_tlds") or []) if str(t).strip()]
         if os.path.exists(seeds_file):
@@ -88,7 +91,7 @@ class ContactSpider(scrapy.Spider):
 
     def is_allowed_domain(self, domain: str) -> bool:
         domain = (domain or "").lower().removeprefix("www.")
-        return bool(domain in self.allowed_domains and
+        return bool(domain and
                     (not self.allowed_tlds or any(domain.endswith(tld) for tld in self.allowed_tlds)))
 
     def _links(self, response):
@@ -110,6 +113,8 @@ class ContactSpider(scrapy.Spider):
         if url in state["scheduled"]:
             return False
         if state["count"] + len(state["scheduled"]) >= self.page_budget:
+            return False
+        if not self.frontier.reserve(url, domain):
             return False
         state["scheduled"].add(url)
         return True
@@ -146,6 +151,7 @@ class ContactSpider(scrapy.Spider):
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
         state["scheduled"].discard(response.url)
         state["count"] += 1
+        self.frontier.mark_crawled(self._canonical_url(response.url))
 
         text = " ".join(t.strip() for t in response.css("body ::text, body::text").getall() if t.strip())
         html = response.text or ""
@@ -210,3 +216,6 @@ class ContactSpider(scrapy.Spider):
             request = self._request_page(full, priority=priority)
             if request:
                 yield request
+
+    def closed(self, reason):
+        self.frontier.close()
