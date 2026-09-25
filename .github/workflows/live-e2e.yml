@@ -112,8 +112,8 @@ jobs:
           print(f"Persisted contacts: {len(rows)}")
           c.close()
           PY
-          curl --fail --silent -o live-export.xlsx http://127.0.0.1:8080/export
-          test -s live-export.xlsx
+          curl --fail --silent -o fixture-export.xlsx http://127.0.0.1:8080/export
+          test -s fixture-export.xlsx
           curl --fail --silent -X POST http://127.0.0.1:8080/stop >/dev/null
           curl --fail --silent http://127.0.0.1:8080/api/stats > stats-pre-live.json
           cat stats-pre-live.json
@@ -213,7 +213,7 @@ jobs:
           curl --silent --show-error -X POST http://127.0.0.1:8080/stop >/dev/null 2>&1 || true
           curl --silent --show-error http://127.0.0.1:8080/api/stats > stats-final.json 2>/dev/null || true
           echo "=== FINAL STATS ==="
-          cat stats-final.json 2>/dev/null || true
+          curl --silent --show-error -o live-export.xlsx http://127.0.0.1:8080/export 2>/dev/null || true
           echo "=== NUMBO LOG ==="
           tail -n 200 numbo.log 2>/dev/null || true
           echo "=== LIVE UI LOG ==="
