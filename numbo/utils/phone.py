@@ -13,8 +13,16 @@ IR_MOBILE = re.compile(
     r"(?<!\d)(?:0(?:9(?:0[1-5]|1[0-9]|2[0-2]|3[0-9]|9[0-9])\d{7})|"
     r"(?:\+?98|0098)9(?:0[1-5]|1[0-9]|2[0-2]|3[0-9]|9[0-9])\d{7})(?!\d)"
 )
-FORMATTED_PHONE = re.compile(
-    r"(?<!\d)(?:(?:\+?98|0098)[\s().-]*|0[\s().-]*)\d(?:[\d\s().-]{7,15})\d(?!\d)"
+# Formatted numbers are deliberately strict: only spaces, hyphens and parentheses
+# are accepted as separators. Dots are excluded because decimal prices, dimensions
+# and coordinates frequently contain them.
+FORMATTED_MOBILE = re.compile(
+    r"(?<!\d)(?:(?:\+?98|0098)[\s()-]*|0[\s()-]*)9(?:[\s()-]*\d){9}(?!\d)"
+)
+FORMATTED_LANDLINE = re.compile(
+    r"(?<!\d)(?:(?:\+?98|0098)[\s()-]*|0[\s()-]*)"
+    r"(?:21|26|25|31|41|51|61|71|81|11|13|17|34|35|38|44|45|54|56|58|74|76|77|83|84|86|87)"
+    r"(?:[\s()-]*\d){8}(?!\d)"
 )
 
 IR_LANDLINE = re.compile(
@@ -81,8 +89,9 @@ def extract_phones(text: str) -> List[str]:
     for match in IR_LANDLINE.finditer(normalized):
         if _valid_landline(match.group(0)):
             found.add(normalize_iranian(match.group(0)))
-    for match in FORMATTED_PHONE.finditer(normalized):
-        value = match.group(0)
-        if _valid_mobile(value) or _valid_landline(value):
-            found.add(normalize_iranian(value))
+    for pattern in (FORMATTED_MOBILE, FORMATTED_LANDLINE):
+        for match in pattern.finditer(normalized):
+            value = match.group(0)
+            if _valid_mobile(value) or _valid_landline(value):
+                found.add(normalize_iranian(value))
     return sorted(found)
