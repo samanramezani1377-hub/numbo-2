@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نومبو ۲ — پنل مدیریت</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Vazirmatn, Tahoma, sans-serif; }
+  </style>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <nav class="bg-indigo-700 text-white px-6 py-4 shadow">
+    <div class="max-w-7xl mx-auto flex justify-between items-center">
+      <h1 class="text-xl font-bold">نومبو ۲ — پنل مدیریت کراولر</h1>
+      <div class="space-x-4 space-x-reverse">
+        <a href="/" class="hover:underline">داشبورد</a>
+        <a href="/contacts" class="hover:underline">نتایج</a>
+        <a href="/logs" class="hover:underline">لاگ‌ها</a>
+        <a href="/export" class="hover:underline">دانلود Excel</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto p-6 space-y-6">
+    <!-- وضعیت -->
+    <div class="bg-white rounded-xl shadow p-6 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-semibold mb-1">وضعیت کراولر</h2>
+        {% if running %}
+          <span class="inline-flex items-center gap-2 text-green-600 font-medium">
+            <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+            در حال اجرا
+          </span>
+        {% else %}
+          <span class="inline-flex items-center gap-2 text-red-500 font-medium">
+            <span class="w-3 h-3 bg-red-400 rounded-full"></span>
+            متوقف
+          </span>
+        {% endif %}
+      </div>
+      <div class="flex gap-3">
+        {% if running %}
+          <form action="/stop" method="post">
+            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-medium">توقف</button>
+          </form>
+        {% else %}
+          <form action="/start" method="post">
+            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg font-medium">شروع کراول</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- آمار -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="bg-white rounded-xl shadow p-4 text-center">
+        <div class="text-2xl font-bold text-indigo-600">{{ stats.total }}</div>
+        <div class="text-sm text-gray-500">کل رکوردها</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 text-center">
+        <div class="text-2xl font-bold text-blue-600">{{ stats.phones }}</div>
+        <div class="text-sm text-gray-500">دارای شماره</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 text-center">
+        <div class="text-2xl font-bold text-purple-600">{{ stats.emails }}</div>
+        <div class="text-sm text-gray-500">دارای ایمیل</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 text-center">
+        <div class="text-2xl font-bold text-orange-600">{{ stats.wordpress }}</div>
+        <div class="text-sm text-gray-500">وردپرس</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 text-center">
+        <div class="text-2xl font-bold text-pink-600">{{ stats.woocommerce }}</div>
+        <div class="text-sm text-gray-500">ووکامرس</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 text-center">
+        <div class="text-2xl font-bold text-teal-600">{{ stats.cities }}</div>
+        <div class="text-sm text-gray-500">شهرها</div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- seeds -->
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="text-lg font-semibold mb-3">لیست دامنه‌ها (seeds.txt)</h2>
+        <form action="/seeds" method="post">
+          <textarea name="seeds" rows="10" class="w-full border rounded-lg p-3 text-sm font-mono" placeholder="هر خط یک دامنه یا URL&#10;example.ir&#10;shop.ir">{{ seeds }}</textarea>
+          <button type="submit" class="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg">ذخیره</button>
+        </form>
+      </div>
+
+      <!-- TLD filter -->
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="text-lg font-semibold mb-3">فیلتر دامنه (TLD)</h2>
+        <p class="text-sm text-gray-500 mb-3">پسوندهای مجاز را با کاما جدا کنید. خالی = همه مجاز.</p>
+        <form action="/tlds" method="post">
+          <input type="text" name="tlds" value="{{ tlds }}" class="w-full border rounded-lg p-3" placeholder=".ir یا .ir,.com">
+          <button type="submit" class="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg">ذخیره تنظیمات</button>
+        </form>
+        <div class="mt-6 text-sm text-gray-600">
+          <p class="font-medium mb-1">راهنما:</p>
+          <ul class="list-disc list-inside space-y-1">
+            <li><code>.ir</code> → فقط دامنه‌های ایرانی</li>
+            <li><code>.ir,.com</code> → ایرانی + کام</li>
+            <li>خالی → بدون محدودیت</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
