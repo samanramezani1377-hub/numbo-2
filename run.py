@@ -3,10 +3,21 @@ import os
 import sys
 import signal
 import logging
+
+os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "numbo.settings")
+
+# Install Scrapy's configured reactor before importing any Twisted module.
+# Importing twisted.internet.reactor first would install EPollReactor on Linux
+# and make CrawlerRunner reject the configured AsyncioSelectorReactor.
+from scrapy.utils.reactor import install_reactor
+
+install_reactor("twisted.internet.asyncioreactor.AsyncioSelectorReactor")
+
 from scrapy.crawler import CrawlerRunner
 from scrapy.utils.project import get_project_settings
 from twisted.internet import reactor, defer
 from twisted.internet.task import deferLater
+
 from numbo.config import load as load_config
 
 logging.basicConfig(
@@ -18,8 +29,6 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("numbo-runner")
-
-os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "numbo.settings")
 
 cfg = load_config()
 CYCLE_DELAY = int(cfg.get("cycle_delay") or 300)
