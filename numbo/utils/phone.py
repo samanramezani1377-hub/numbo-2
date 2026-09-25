@@ -79,6 +79,25 @@ def _valid_landline(value: str) -> bool:
         digits,
     ))
 
+def classify_phone(value: str) -> str:
+    """Return 'mobile', 'landline', or '' for a normalized Iranian number."""
+    if _valid_mobile(value):
+        return "mobile"
+    if _valid_landline(value):
+        return "landline"
+    return ""
+
+
+def split_phones(values):
+    """Split an iterable of phone numbers into mobile and fixed-line lists."""
+    mobile, landline = [], []
+    for value in values or []:
+        kind = classify_phone(value)
+        target = mobile if kind == "mobile" else landline if kind == "landline" else None
+        if target is not None and value not in target:
+            target.append(value)
+    return mobile, landline
+
 
 def extract_phones(text: str) -> List[str]:
     normalized = normalize_digits(text or "")
