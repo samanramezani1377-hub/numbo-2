@@ -204,14 +204,18 @@ class ContactSpider(scrapy.Spider):
         # Extract visible body text only. Script/style/noscript contents often contain
         # JSON configuration, prices, IDs and phone-like digit sequences that must
         # never become lead data.
-        text = " ".join(
+        visible_chunks = [
             t.strip()
             for t in response.xpath(
                 "//body//text()[not(ancestor::script) and not(ancestor::style) "
                 "and not(ancestor::noscript) and not(ancestor::template)]"
             ).getall()
             if t.strip()
-        )
+        ]
+        # Keep a line-oriented version for address labels; collapsing everything
+        # into one string lets a label accidentally capture the next 300 chars.
+        visible_text = "\n".join(visible_chunks)
+        text = " ".join(visible_chunks)
         html = response.text or ""
         title = response.css("title::text").get(default="").strip()
 
@@ -233,7 +237,7 @@ class ContactSpider(scrapy.Spider):
         city = detect_city(text)
         category = detect_category(text, domain)
         business = extract_business_name(response, domain)
-        address = extract_address(response, text)
+        address = extract_address(response, visible_text)
         socials = extract_socials(response)
 
         evidence = {
