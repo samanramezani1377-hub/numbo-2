@@ -1,21 +1,33 @@
 # نومبو ۲ (Numbo-2)
 
-کراولر سبک، پایدار و **اجرای مداوم** برای استخراج اطلاعات تماس عمومی از وب‌سایت‌ها.
+کراولر سبک، پایدار و **اجرای مداوم** برای استخراج اطلاعات تماس عمومی + تشخیص تکنولوژی سایت‌ها.
 
-طراحی شده برای اجرا روی هاست لینوکس. استخراج شماره تماس (فرمت‌های ایرانی)، ایمیل، نام کسب‌وکار و دسته‌بندی نتایج.
+طراحی شده برای اجرا روی هاست لینوکس.
 
 ## ویژگی‌های اصلی
 
 - **اجرای مداوم** تا زمانی که خودت با Ctrl+C یا SIGTERM متوقفش کنی
 - استخراج شماره موبایل و ثابت ایرانی + بین‌المللی
 - استخراج ایمیل و لینک شبکه‌های اجتماعی
+- **تشخیص تکنولوژی** (WordPress، WooCommerce، Joomla، Drupal، Shopify، Laravel، Next.js، React و ...)
 - حذف تکراری خودکار
 - دسته‌بندی ساده بر اساس کلیدواژه و تشخیص شهر
 - **فیلتر قابل تنظیم دامنه (TLD)** — پیش‌فرض فقط `.ir`
 - ذخیره در SQLite + خروجی CSV و Excel
 - احترام به robots.txt + Rate Limit + AutoThrottle
 - چرخش User-Agent
-- آماده اجرا با یک دستور
+
+## تکنولوژی‌هایی که تشخیص می‌دهد
+
+| دسته | تکنولوژی‌ها |
+|------|-------------|
+| CMS | WordPress, Joomla, Drupal |
+| فروشگاهی | WooCommerce, Shopify, Magento, PrestaShop, OpenCart |
+| فریمورک | Laravel, Next.js, React, Vue.js, Angular |
+| کتابخانه | Bootstrap, jQuery |
+| سرویس | Cloudflare, Google Analytics, Google Tag Manager |
+
+هر تشخیص همراه با **سطح اطمینان (confidence)** ذخیره می‌شود.
 
 ## پیش‌نیاز
 
@@ -34,29 +46,26 @@ pip install -r requirements.txt
 
 ## تنظیم فیلتر دامنه (فقط .ir یا هر چیز دیگه)
 
-فایل `numbo/settings.py` را باز کن و این بخش را تغییر بده:
+فایل `numbo/settings.py` را باز کن:
 
 ```python
-# فقط دامنه‌های ایرانی
+# فقط دامنه‌های ایرانی (پیش‌فرض)
 ALLOWED_TLDS = [".ir"]
 
-# یا همه دامنه‌ها (بدون محدودیت)
+# همه دامنه‌ها
 # ALLOWED_TLDS = []
 
-# یا چند پسوند
-# ALLOWED_TLDS = [".ir", ".com", ".org"]
+# چند پسوند
+# ALLOWED_TLDS = [".ir", ".com"]
 ```
-
-پیش‌فرض روی فقط `.ir` تنظیم شده است.
 
 ## نحوه اجرا (مداوم)
 
-1. دامنه‌ها یا URLهای اولیه را در فایل `seeds.txt` بنویس (هر خط یکی):
+1. دامنه‌ها را در `seeds.txt` بنویس:
 
 ```text
 example.ir
 some-shop.ir
-https://www.another.ir
 ```
 
 2. اجرا:
@@ -65,15 +74,13 @@ https://www.another.ir
 python run.py
 ```
 
-کراولر شروع می‌کند و بعد از هر دور کامل، چند دقیقه صبر می‌کند و دوباره از اول شروع می‌کند. تا وقتی که Ctrl+C نزنی یا سرویس را متوقف نکنی، ادامه می‌دهد.
+تا وقتی Ctrl+C نزنی ادامه می‌دهد.
 
-برای اجرا در پس‌زمینه روی سرور:
+پس‌زمینه:
 
 ```bash
 nohup python run.py > numbo.log 2>&1 &
 ```
-
-یا با systemd (نمونه سرویس در `deploy/numbo.service`).
 
 ## خروجی گرفتن
 
@@ -81,25 +88,22 @@ nohup python run.py > numbo.log 2>&1 &
 python export.py
 ```
 
-فایل‌های CSV و Excel در پوشه `data/` ساخته می‌شوند.
+ستون `technologies` در خروجی CSV/Excel شامل تکنولوژی‌های شناسایی‌شده با سطح اطمینان است.
 
 ## ساختار پروژه
 
 ```
 numbo-2/
-├── run.py                 # اجرای مداوم
-├── export.py              # خروجی CSV/Excel
-├── seeds.txt              # لیست شروع
-├── requirements.txt
+├── run.py
+├── export.py
+├── seeds.txt
 ├── numbo/
-│   ├── settings.py        # تنظیمات (از جمله ALLOWED_TLDS)
-│   ├── items.py
-│   ├── pipelines.py
-│   ├── middlewares.py
+│   ├── settings.py          # ALLOWED_TLDS و تنظیمات دیگر
 │   ├── spiders/contact.py
 │   └── utils/
 │       ├── phone.py
-│       └── category.py
+│       ├── category.py
+│       └── tech.py          # تشخیص تکنولوژی
 └── deploy/
     └── numbo.service
 ```
@@ -107,10 +111,5 @@ numbo-2/
 ## نکات مهم
 
 - به `robots.txt` احترام گذاشته می‌شود.
-- تأخیر و محدودیت همزمانی برای جلوگیری از فشار روی سایت‌ها تنظیم شده.
 - این ابزار فقط برای اطلاعات **عمومی** طراحی شده است.
 - مسئولیت استفاده از داده‌ها بر عهده کاربر است.
-
----
-
-ساخته‌شده از صفر با تمرکز روی سادگی، پایداری و نگهداری راحت.
