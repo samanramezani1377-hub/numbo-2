@@ -16,6 +16,12 @@ def test_multi_value_fields_are_exported_to_separate_columns():
                 "telegram": "https://t.me/example",
                 "instagram": "https://instagram.com/example",
             }),
+            "evidence": json.dumps({
+                "page": "https://example.com/contact",
+                "tel_links": 3,
+                "socials": ["telegram", "instagram"],
+                "technologies": ["WordPress", "WooCommerce"],
+            }),
         }
     ])
 
@@ -35,6 +41,14 @@ def test_multi_value_fields_are_exported_to_separate_columns():
 
     assert result.loc[0, "social_telegram"] == "https://t.me/example"
     assert result.loc[0, "social_instagram"] == "https://instagram.com/example"
+
+    assert result.loc[0, "evidence_page"] == "https://example.com/contact"
+    assert result.loc[0, "evidence_tel_links"] == "3"
+    assert result.loc[0, "evidence_socials_1"] == "telegram"
+    assert result.loc[0, "evidence_socials_2"] == "instagram"
+    assert result.loc[0, "evidence_technologies_1"] == "WordPress"
+    assert result.loc[0, "evidence_technologies_2"] == "WooCommerce"
+    assert "evidence" not in result.columns
 
 
 def test_shorter_rows_get_empty_cells():
