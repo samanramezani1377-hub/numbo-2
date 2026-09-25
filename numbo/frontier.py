@@ -25,6 +25,20 @@ class CrawlHistory:
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_crawl_urls_domain ON crawl_urls(domain)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_crawl_urls_status ON crawl_urls(status)")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS discovered_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_url TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                target_domain TEXT NOT NULL,
+                external INTEGER NOT NULL DEFAULT 0,
+                crawlable INTEGER NOT NULL DEFAULT 0,
+                first_seen TEXT NOT NULL,
+                UNIQUE(source_url, target_url)
+            )
+        """)
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_target_domain ON discovered_links(target_domain)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_external ON discovered_links(external)")
         self.conn.commit()
 
     def close(self):
@@ -71,3 +85,30 @@ class CrawlHistory:
             (url,),
         )
         self.conn.commit()
+
+
+    def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
+        self.conn.execute(
+            """INSERT OR IGNORE INTO discovered_links
+               (source_url, target_url, target_domain, external, crawlable, first_seen)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (source_url, target_url, target_domain, int(external), int(crawlable), datetime.utcnow().isoformat()),
+        )
+        self.conn.commit()
+
+    def list_discovered_links(self, query=None, page=1, per_page=50):
+        page = max(int(page), 1)
+        per_page = max(int(per_page), 1)
+        params = []
+        where = ""
+        if query:
+            where = "WHERE source_url LIKE ? OR target_url LIKE ? OR target_domain LIKE ?"
+            value = f"%{query}%"
+            params = [value, value, value]
+        total = self.conn.execute(f"SELECT COUNT(*) FROM discovered_links {where}", params).fetchone()[0]
+        rows = self.conn.execute(
+            f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
+                FROM discovered_links {where} ORDER BY first_seen DESC LIMIT ? OFFSET ?""",
+            params + [per_page, (page - 1) * per_page],
+        ).fetchall()
+        return rows, total
