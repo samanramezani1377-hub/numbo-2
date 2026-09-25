@@ -1,0 +1,16 @@
+[Unit]
+Description=Numbo-2 Contact Crawler
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/numbo-2
+ExecStart=/opt/numbo-2/venv/bin/python run.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=append:/var/log/numbo.log
+StandardError=append:/var/log/numbo.log
+
+[Install]
+WantedBy=multi-user.target
