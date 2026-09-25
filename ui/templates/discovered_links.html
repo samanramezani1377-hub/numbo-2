@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لینک‌های خارجی — نومبو ۲</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+  <style>body { font-family: Vazirmatn, Tahoma, sans-serif; }</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <nav class="bg-indigo-700 text-white px-6 py-4 shadow">
+    <div class="max-w-7xl mx-auto flex justify-between items-center">
+      <h1 class="text-xl font-bold">لینک‌های خارجی کشف‌شده</h1>
+      <div class="space-x-4 space-x-reverse">
+        <a href="/" class="hover:underline">داشبورد</a>
+        <a href="/contacts" class="hover:underline">نتایج</a>
+        <a href="/discovered-links" class="hover:underline">لینک‌های خارجی</a>
+        <a href="/logs" class="hover:underline">لاگ‌ها</a>
+      </div>
+    </div>
+  </nav>
+  <main class="max-w-7xl mx-auto p-6">
+    <form method="get" class="bg-white rounded-xl shadow p-4 mb-6 flex gap-3 items-end">
+      <div class="flex-1">
+        <label class="text-sm text-gray-600">جستجو</label>
+        <input type="text" name="q" value="{{ q }}" placeholder="دامنه یا URL..." class="border rounded-lg px-3 py-2 w-full">
+      </div>
+      <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">جستجو</button>
+      <a href="/discovered-links" class="text-gray-500 py-2">پاک کردن</a>
+    </form>
+    <div class="text-sm text-gray-500 mb-3">{{ total }} لینک</div>
+    <div class="bg-white rounded-xl shadow overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600">
+          <tr>
+            <th class="p-3 text-right">صفحه مبدأ</th>
+            <th class="p-3 text-right">لینک مقصد</th>
+            <th class="p-3 text-right">دامنه مقصد</th>
+            <th class="p-3 text-right">وضعیت کراول</th>
+            <th class="p-3 text-right">زمان کشف</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="border-t hover:bg-gray-50">
+            <td class="p-3 max-w-sm truncate" title="{{ row[0] }}">{{ row[0] }}</td>
+            <td class="p-3 max-w-sm truncate">
+              <a href="{{ row[1] }}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">{{ row[1] }}</a>
+            </td>
+            <td class="p-3">{{ row[2] }}</td>
+            <td class="p-3">
+              {% if row[3] %}
+                <span class="text-green-600">قابل کراول</span>
+              {% else %}
+                <span class="text-gray-500">فقط کشف شد</span>
+              {% endif %}
+            </td>
+            <td class="p-3 text-xs text-gray-400">{{ row[4][:16] }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="p-8 text-center text-gray-400">هنوز لینک خارجی کشف نشده</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if total_pages > 1 %}
+    <div class="flex justify-center gap-2 mt-6">
+      {% if page > 1 %}<a href="?page={{ page-1 }}&q={{ q }}" class="px-3 py-1 bg-white rounded shadow">قبلی</a>{% endif %}
+      <span class="px-3 py-1">صفحه {{ page }} از {{ total_pages }}</span>
+      {% if page < total_pages %}<a href="?page={{ page+1 }}&q={{ q }}" class="px-3 py-1 bg-white rounded shadow">بعدی</a>{% endif %}
+    </div>
+    {% endif %}
+  </main>
+</body>
+</html>
