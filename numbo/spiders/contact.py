@@ -116,6 +116,20 @@ class ContactSpider(scrapy.Spider):
                 )
                 yield full
 
+    def _is_non_content_external(self, url):
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        path = parsed.path.lower()
+        if host in {"linkedin.com", "facebook.com", "twitter.com", "x.com"} and (
+            path.startswith("/share") or path.startswith("/sharer") or path.startswith("/intent")
+        ):
+            return True
+        if host in {"t.me", "telegram.me", "telegram.dog"} and path.startswith("/share"):
+            return True
+        if host == "wa.me" or host == "api.whatsapp.com":
+            return True
+        return False
+
     def _reserve_page(self, url):
         domain = self._site_key(url)
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
@@ -187,7 +201,17 @@ class ContactSpider(scrapy.Spider):
         if final_url != requested_url:
             self.frontier.mark_crawled(final_url)
 
-        text = " ".join(t.strip() for t in response.css("body ::text, body::text").getall() if t.strip())
+        # Extract visible body text only. Script/style/noscript contents often contain
+        # JSON configuration, prices, IDs and phone-like digit sequences that must
+        # never become lead data.
+        text = " ".join(
+            t.strip()
+            for t in response.xpath(
+                "//body//text()[not(ancestor::script) and not(ancestor::style) "
+                "and not(ancestor::noscript) and not(ancestor::template)]"
+            ).getall()
+            if t.strip()
+        )
         html = response.text or ""
         title = response.css("title::text").get(default="").strip()
 
@@ -265,6 +289,10 @@ class ContactSpider(scrapy.Spider):
             # allowed by the current configuration, even when it belongs
             # to a different domain. Disallowed links remain discovery-only.
             if not self.is_allowed_domain(target_domain):
+                continue
+            # Keep social/share action URLs in discovery history, but do not
+            # spend crawl budget on endpoints that are not content pages.
+            if target_domain != domain and self._is_non_content_external(full):
                 continue
             # Scrapy's OffsiteMiddleware also checks allowed_domains. Add
             # newly discovered, configuration-allowed domains dynamically so
