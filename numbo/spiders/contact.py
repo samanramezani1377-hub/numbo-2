@@ -78,7 +78,12 @@ class ContactSpider(scrapy.Spider):
         path = parsed.path or "/"
         if path != "/":
             path = path.rstrip("/")
-        return urlunparse((parsed.scheme.lower(), (parsed.hostname or "").lower(),
+        hostname = (parsed.hostname or "").lower()
+        # Preserve an explicit port for local/test runtimes such as 127.0.0.1:8765.
+        netloc = hostname
+        if parsed.port is not None:
+            netloc = f"{netloc}:{parsed.port}"
+        return urlunparse((parsed.scheme.lower(), netloc,
                            path, "", urlencode(sorted(query)), ""))
 
     def is_allowed_domain(self, domain: str) -> bool:
