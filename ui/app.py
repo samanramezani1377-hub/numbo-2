@@ -245,20 +245,44 @@ async def list_contacts(
 
 
 @app.get("/discovered-links")
-async def discovered_links(request: Request, q: Optional[str] = None, page: int = 1):
+async def discovered_links(request: Request, q: Optional[str] = None, page: int = 1,
+                           status: Optional[str] = None):
     from numbo.frontier import CrawlHistory
+    crawlable = None if status in (None, "", "all") else status == "allowed"
     history = CrawlHistory(DB_PATH)
     try:
-        rows, total = history.list_discovered_links(query=q or "", page=page, per_page=50)
+        rows, total = history.list_discovered_links(
+            query=q or "", page=page, per_page=50, crawlable=crawlable
+        )
+        denied_rows, denied_total = history.list_discovered_links(
+            query=q or "", page=1, per_page=1, crawlable=False
+        )
+        allowed_rows, allowed_total = history.list_discovered_links(
+            query=q or "", page=1, per_page=1, crawlable=True
+        )
     finally:
         history.close()
     total_pages = max(1, (total + 49) // 50)
     return templates.TemplateResponse(
         request=request,
         name="discovered_links.html",
-        context={"request": request, "rows": rows, "q": q or "", "page": max(page, 1),
-                 "total": total, "total_pages": total_pages},
+        context={
+            "request": request, "rows": rows, "q": q or "", "status": status or "all",
+            "page": max(page, 1), "total": total, "total_pages": total_pages,
+            "denied_total": denied_total, "allowed_total": allowed_total,
+        },
     )
+
+@app.get("/discovered-links/download")
+async def download_discovered_links(status: str = "denied"):
+    from numbo.frontier import CrawlHistory
+    path = DATA_DIR / ("discovered_links_denied.csv" if status == "denied" else "discovered_links_allowed.csv")
+    history = CrawlHistory(DB_PATH)
+    try:
+        history.export_discovered_links(path, crawlable=(status == "allowed"))
+    finally:
+        history.close()
+    return FileResponse(path, filename=path.name, media_type="text/csv")
 
 
 @app.get("/export")
