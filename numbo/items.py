@@ -12,4 +12,5 @@ class ContactItem(scrapy.Item):
     category = scrapy.Field()
     city = scrapy.Field()
     socials = scrapy.Field()         # dict of platform -> url
+    technologies = scrapy.Field()    # list of {name, confidence, evidence}
     crawled_at = scrapy.Field()
