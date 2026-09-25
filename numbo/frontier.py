@@ -96,15 +96,19 @@ class CrawlHistory:
         )
         self.conn.commit()
 
-    def list_discovered_links(self, query=None, page=1, per_page=50):
+    def list_discovered_links(self, query=None, page=1, per_page=50, crawlable=None):
         page = max(int(page), 1)
         per_page = max(int(per_page), 1)
         params = []
-        where = "WHERE external = 1"
+        conditions = ["external = 1"]
+        if crawlable is not None:
+            conditions.append("crawlable = ?")
+            params.append(int(bool(crawlable)))
         if query:
-            where = "WHERE external = 1 AND (source_url LIKE ? OR target_url LIKE ? OR target_domain LIKE ?)"
+            conditions.append("(source_url LIKE ? OR target_url LIKE ? OR target_domain LIKE ?)")
             value = f"%{query}%"
-            params = [value, value, value]
+            params.extend([value, value, value])
+        where = "WHERE " + " AND ".join(conditions)
         total = self.conn.execute(f"SELECT COUNT(*) FROM discovered_links {where}", params).fetchone()[0]
         rows = self.conn.execute(
             f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
@@ -112,3 +116,22 @@ class CrawlHistory:
             params + [per_page, (page - 1) * per_page],
         ).fetchall()
         return rows, total
+
+    def export_discovered_links(self, path, crawlable=None):
+        import csv
+        conditions = ["external = 1"]
+        params = []
+        if crawlable is not None:
+            conditions.append("crawlable = ?")
+            params.append(int(bool(crawlable)))
+        where = "WHERE " + " AND ".join(conditions)
+        rows = self.conn.execute(
+            f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
+                FROM discovered_links {where} ORDER BY first_seen DESC""",
+            params,
+        ).fetchall()
+        with open(path, "w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["source_url", "target_url", "target_domain", "crawlable", "first_seen"])
+            writer.writerows(rows)
+        return len(rows)
