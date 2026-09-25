@@ -63,7 +63,7 @@ class ContactSpider(scrapy.Spider):
 
     def start_requests(self):
         for seed in self.start_urls:
-            request = self._request_page(seed, priority=50, meta={"numbo_source": "seed"})
+            request = self._request_page(seed, priority=50, meta={"numbo_source": "seed"}, seed=True)
             if request:
                 yield request
             parsed = urlparse(seed)
@@ -142,25 +142,27 @@ class ContactSpider(scrapy.Spider):
             return True
         return False
 
-    def _reserve_page(self, url):
+    def _reserve_page(self, url, seed=False):
         domain = self._site_key(url)
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
         if url in state["scheduled"]:
             return False
         if state["count"] + len(state["scheduled"]) >= self.page_budget:
             return False
-        if not self.frontier.reserve(url, domain):
+        if seed:
+            self.frontier.reserve_seed(url, domain)
+        elif not self.frontier.reserve(url, domain):
             return False
         state["scheduled"].add(url)
         return True
 
-    def _request_page(self, url, priority=0, meta=None):
+    def _request_page(self, url, priority=0, meta=None, seed=False):
         target_domain = self._site_key(url)
         if self.is_allowed_domain(target_domain) and target_domain not in self.allowed_domains:
             # Keep Scrapy's OffsiteMiddleware in sync for configuration-allowed
             # domains discovered after the spider starts.
             self.allowed_domains.append(target_domain)
-        if not self._reserve_page(url):
+        if not self._reserve_page(url, seed=seed):
             return None
         request_meta = dict(meta or {})
         request_meta["numbo_site"] = self._site_key(url)
