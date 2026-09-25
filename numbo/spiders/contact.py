@@ -124,7 +124,13 @@ class ContactSpider(scrapy.Spider):
             return None
         request_meta = dict(meta or {})
         request_meta["numbo_site"] = self._site_key(url)
-        return scrapy.Request(url, callback=self.parse, priority=priority, meta=request_meta)
+        return scrapy.Request(
+            url,
+            callback=self.parse,
+            errback=self.request_failed,
+            priority=priority,
+            meta=request_meta,
+        )
 
     def parse_aux(self, response):
         ctype = (response.headers.get("Content-Type") or b"").decode("latin1").lower()
@@ -146,12 +152,26 @@ class ContactSpider(scrapy.Spider):
                         if request:
                             yield request
 
+    def request_failed(self, failure):
+        request = failure.request
+        url = self._canonical_url(request.url)
+        domain = self._site_key(url)
+        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+        state["scheduled"].discard(url)
+        self.frontier.mark_failed(url)
+        self.logger.warning("Page request failed: %s (%s)", url, failure.value)
+
     def parse(self, response):
         domain = self._site_key(response.url)
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
-        state["scheduled"].discard(response.url)
+        requested_url = self._canonical_url(response.request.url)
+        state["scheduled"].discard(requested_url)
+        state["scheduled"].discard(self._canonical_url(response.url))
         state["count"] += 1
-        self.frontier.mark_crawled(self._canonical_url(response.url))
+        self.frontier.mark_crawled(requested_url)
+        final_url = self._canonical_url(response.url)
+        if final_url != requested_url:
+            self.frontier.mark_crawled(final_url)
 
         text = " ".join(t.strip() for t in response.css("body ::text, body::text").getall() if t.strip())
         html = response.text or ""
