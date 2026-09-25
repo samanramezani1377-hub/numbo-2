@@ -33,3 +33,10 @@ def test_reject_fake_numbers():
 
 def test_reject_partial_mobile():
     assert extract_phones("1234567890") == []
+
+
+def test_spider_like_mailto_and_tel_inputs():
+    from numbo.utils.phone import extract_phones
+    from numbo.utils.category import extract_emails
+    assert "09121234567" in extract_phones("+989121234567")
+    assert extract_emails("Sales@Example.ir") == ["sales@example.ir"]
