@@ -1,4 +1,4 @@
-"""Technology detection with evidence-weighted confidence."""
+"""Technology detection with evidence-weighted confidence and stable presentation."""
 import re
 from typing import Dict, List, Tuple
 
@@ -28,6 +28,15 @@ RULES: Dict[str, List[Tuple[str, float, str]]] = {
     "Google Tag Manager": [(r"googletagmanager.com", .95, "html"), (r"GTM-[A-Z0-9]+", .9, "html")],
 }
 
+# Stable presentation order: CMS/store platform first, then framework/library,
+# then infrastructure/analytics. This keeps UI, DB and exports consistent.
+TECH_ORDER = [
+    "WordPress", "WooCommerce", "Shopify", "Magento", "PrestaShop", "OpenCart",
+    "Joomla", "Drupal", "Laravel", "Next.js", "React", "Vue.js", "Angular",
+    "Bootstrap", "jQuery", "Cloudflare", "Google Tag Manager", "Google Analytics",
+]
+
+
 def detect_technologies(html: str = "", url: str = "", headers: dict = None) -> List[Dict[str, object]]:
     headers = headers or {}
     html_lower = html or ""
@@ -50,11 +59,9 @@ def detect_technologies(html: str = "", url: str = "", headers: dict = None) -> 
         strong = sum(1 for _, w, _ in hits if w >= 0.85)
         sources = {where for _, _, where in hits}
         confidence = min(1.0, score / max(total * 0.55, 0.01))
-
-        # One strong, technology-specific signature is enough; weak generic
-        # keywords need corroboration to avoid false positives.
         specific_single = strong >= 1 and max(w for _, w, _ in hits) >= 0.9
         corroborated = len(hits) >= 2 or len(sources) >= 2
+
         if (specific_single or corroborated) and confidence >= 0.35:
             results.append({
                 "name": tech,
@@ -63,8 +70,31 @@ def detect_technologies(html: str = "", url: str = "", headers: dict = None) -> 
                 "evidence_count": len(hits),
             })
 
-    results.sort(key=lambda x: x["confidence"], reverse=True)
-    return results
+    return sort_technologies(results)
+
+
+def sort_technologies(techs: List[Dict]) -> List[Dict]:
+    """Deduplicate and return technologies in a deterministic, human-friendly order."""
+    by_name = {}
+    for tech in techs or []:
+        name = str(tech.get("name") or "").strip()
+        if not name:
+            continue
+        existing = by_name.get(name)
+        if existing is None or float(tech.get("confidence") or 0) > float(existing.get("confidence") or 0):
+            by_name[name] = tech
+
+    order = {name: index for index, name in enumerate(TECH_ORDER)}
+    return sorted(
+        by_name.values(),
+        key=lambda item: (
+            order.get(str(item.get("name")), len(TECH_ORDER)),
+            -float(item.get("confidence") or 0),
+            str(item.get("name") or "").lower(),
+        ),
+    )
+
 
 def format_technologies(techs: List[Dict]) -> str:
-    return "; ".join(f"{t['name']}({t['confidence']})" for t in (techs or []))
+    """Serialize technologies without confidence noise in the main result field."""
+    return "; ".join(str(t["name"]) for t in sort_technologies(techs))
