@@ -231,7 +231,8 @@ async def list_contacts(
     if city:
         where.append("city = ?")
         params.append(city)
-    where_sql = ("WHERE    raw_rows = conn.execute(
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    raw_rows = conn.execute(
         f"SELECT * FROM contacts {where_sql} ORDER BY crawled_at DESC",
         params,
     ).fetchall()
@@ -281,11 +282,14 @@ async def list_contacts(
     total = len(rows)
     rows = rows[offset:offset + per_page]
     total_pages = max(1, (total + per_page - 1) // per_page)
-    return templates.TemplateResponse("contacts.html", {
-        "request": request, "rows": rows, "page": page, "total_pages": total_pages,
-        "q": q or "", "tech": tech or "", "city": city or "", "total": total,
-    }) "city": city or "", "total": total,
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="contacts.html",
+        context={
+            "request": request, "rows": rows, "page": page, "total_pages": total_pages,
+            "q": q or "", "tech": tech or "", "city": city or "", "total": total,
+        },
+    )
 
 
 @app.get("/discovered-links")
