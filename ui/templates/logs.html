@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لاگ‌ها — نومبو ۲</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+  <style>body { font-family: Vazirmatn, Tahoma, sans-serif; }</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <nav class="bg-indigo-700 text-white px-6 py-4 shadow">
+    <div class="max-w-7xl mx-auto flex justify-between items-center">
+      <h1 class="text-xl font-bold">لاگ کراولر</h1>
+      <div class="space-x-4 space-x-reverse">
+        <a href="/" class="hover:underline">داشبورد</a>
+        <a href="/contacts" class="hover:underline">نتایج</a>
+        <a href="/logs" class="hover:underline">لاگ‌ها</a>
+        <a href="/export" class="hover:underline">دانلود Excel</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto p-6">
+    <div class="bg-black text-green-400 rounded-xl shadow p-4 font-mono text-xs overflow-auto" style="max-height: 70vh; direction: ltr; text-align: left;">
+      <pre>{{ logs or 'هنوز لاگی ثبت نشده' }}</pre>
+    </div>
+    <div class="mt-4">
+      <a href="/logs" class="text-indigo-600 hover:underline">بروزرسانی</a>
+    </div>
+  </main>
+</body>
+</html>
