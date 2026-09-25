@@ -72,6 +72,29 @@ class CrawlHistory:
             ).fetchone()
             return bool(row and row[0] == "failed")
 
+    def reserve_seed(self, url, domain, source_url=None):
+        """Reserve an explicit seed for the current crawl cycle.
+
+        Seeds are operator-selected entry points, so persistent history must
+        not suppress them on later cycles. This does not change the normal
+        deduplication rules for discovered/internal/external links.
+        """
+        now = datetime.utcnow().isoformat()
+        self.conn.execute(
+            """INSERT INTO crawl_urls
+               (url, domain, status, source_url, first_seen, crawled_at)
+               VALUES (?, ?, 'queued', ?, ?, NULL)
+               ON CONFLICT(url) DO UPDATE SET
+                   domain = excluded.domain,
+                   status = 'queued',
+                   source_url = excluded.source_url,
+                   first_seen = excluded.first_seen,
+                   crawled_at = NULL""",
+            (url, domain, source_url, now),
+        )
+        self.conn.commit()
+        return True
+
     def mark_crawled(self, url):
         self.conn.execute(
             "UPDATE crawl_urls SET status = 'crawled', crawled_at = ? WHERE url = ?",
@@ -85,7 +108,6 @@ class CrawlHistory:
             (url,),
         )
         self.conn.commit()
-
 
     def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
         # Discovery happens frequently; keep a short retry loop because the
