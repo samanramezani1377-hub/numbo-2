@@ -130,8 +130,13 @@ def test_explicit_seed_bypasses_global_tld_only_for_that_seed(tmp_path):
     assert "https://other.com/contact" in links
     assert "https://allowed.ir/contact" in links
 
-    crawlable = {row[1]: row[3] for row in spider.frontier.list_discovered_links()[0]}
-    assert crawlable["https://example.com/about"] == 1
+    # list_discovered_links() intentionally exposes only external links.
+    # The seeded .com domain itself is internal, so verify it through the
+    # domain decision and verify external targets through Frontier.
+    assert spider.is_allowed_domain("example.com")
+    rows, total = spider.frontier.list_discovered_links()
+    assert total == 2
+    crawlable = {row[1]: row[3] for row in rows}
     assert crawlable["https://other.com/contact"] == 0
     assert crawlable["https://allowed.ir/contact"] == 1
     spider.frontier.close()
