@@ -244,6 +244,23 @@ async def list_contacts(
     })
 
 
+@app.get("/discovered-links")
+async def discovered_links(request: Request, q: Optional[str] = None, page: int = 1):
+    from numbo.frontier import CrawlHistory
+    history = CrawlHistory(DB_PATH)
+    try:
+        rows, total = history.list_discovered_links(query=q or "", page=page, per_page=50)
+    finally:
+        history.close()
+    total_pages = max(1, (total + 49) // 50)
+    return templates.TemplateResponse(
+        request=request,
+        name="discovered_links.html",
+        context={"request": request, "rows": rows, "q": q or "", "page": max(page, 1),
+                 "total": total, "total_pages": total_pages},
+    )
+
+
 @app.get("/export")
 async def export_data():
     from export import main as do_export
