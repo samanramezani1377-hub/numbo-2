@@ -58,7 +58,9 @@ class ContactSpider(scrapy.Spider):
 
     def start_requests(self):
         for seed in self.start_urls:
-            yield scrapy.Request(seed, callback=self.parse, priority=50, meta={"numbo_site": self._site_key(seed)})
+            request = self._request_page(seed, priority=50, meta={"numbo_source": "seed"})
+            if request:
+                yield request
             parsed = urlparse(seed)
             for path in ("/robots.txt", "/sitemap.xml", "/sitemap_index.xml"):
                 yield scrapy.Request(
