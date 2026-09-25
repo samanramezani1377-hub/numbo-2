@@ -52,12 +52,6 @@ class ContactSpider(scrapy.Spider):
         if not self.start_urls:
             self.logger.warning("No valid seeds found in %s (after TLD filter).", seeds_file)
 
-    @classmethod
-    def from_crawler(cls, crawler, *args, **kwargs):
-        spider = super().from_crawler(crawler, *args, **kwargs)
-        spider.stats = crawler.stats
-        return spider
-
     def start_requests(self):
         for seed in self.start_urls:
             request = self._request_page(seed, priority=50, meta={"numbo_source": "seed"})
