@@ -1,0 +1,233 @@
+name: Numbo 2 Live E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-e2e:
+    name: Real crawler + UI + SQLite + export + public crawl
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Baseline unit tests
+        run: python -m pytest -q
+
+      - name: Compile all Python
+        run: python -m compileall -q numbo ui run.py export.py start_ui.py
+
+      - name: Prepare isolated live environment
+        run: |
+          rm -rf data
+          mkdir -p data live-fixture
+          cp config.json config.live.json
+          python - <<'PY'
+          import json
+          p = "config.json"
+          c = json.load(open(p))
+          c["allowed_tlds"] = []
+          c["cycle_delay"] = 999999
+          c["panel_port"] = 8080
+          json.dump(c, open(p, "w"), ensure_ascii=False, indent=2)
+          PY
+
+      - name: Start local real HTTP fixture
+        run: |
+          cat > live-fixture/index.html <<'EOF'
+          <!doctype html>
+          <html><head><title>Numbo Live Fixture - WooCommerce</title></head>
+          <body>
+            <h1>Numbo Live Fixture</h1>
+            <p>Phone: +98 21 1234 5678</p>
+            <p>Email: live@example.test</p>
+            <a href="/contact.html">Contact</a>
+            <a href="/about.html">About</a>
+            <script src="/wp-content/plugins/woocommerce/assets/js/frontend/cart-fragments.min.js"></script>
+          </body></html>
+          EOF
+          cat > live-fixture/contact.html <<'EOF'
+          <!doctype html>
+          <html><head><title>Contact - Numbo Live Fixture</title></head>
+          <body><h1>Contact</h1><p>Phone: +98 21 1234 5678</p><p>Email: contact@example.test</p></body></html>
+          EOF
+          cat > live-fixture/about.html <<'EOF'
+          <!doctype html>
+          <html><head><title>About - Numbo Live Fixture</title></head>
+          <body><h1>About</h1><p>WordPress WooCommerce shop.</p></body></html>
+          EOF
+          python -m http.server 8765 --directory live-fixture > fixture.log 2>&1 &
+          echo $! > fixture.pid
+          sleep 2
+          curl --fail --silent http://127.0.0.1:8765/ > /dev/null
+
+      - name: Start real Numbo 2 control panel
+        run: |
+          nohup python start_ui.py > ui.log 2>&1 &
+          echo $! > ui.pid
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/health > health.json; then break; fi
+            sleep 1
+          done
+          test -s health.json
+          cat health.json
+
+      - name: Verify dashboard API before crawl
+        run: |
+          curl --fail --silent http://127.0.0.1:8080/api/stats > stats-before.json
+          cat stats-before.json
+          python - <<'PY'
+          import json
+          x=json.load(open("stats-before.json"))
+          assert x["running"] is False, x
+          PY
+
+      - name: Run real crawler through the UI
+        run: |
+          printf '%s\n' 'http://127.0.0.1:8765/' > seeds.txt
+          curl --fail --silent -X POST http://127.0.0.1:8080/seeds --data-urlencode "seeds=http://127.0.0.1:8765/"
+          curl --fail --silent -X POST http://127.0.0.1:8080/start > /dev/null
+          found=0
+          for i in $(seq 1 60); do
+            sleep 1
+            if [ -f data/numbo.db ]; then
+              count=$(python - <<'PY'
+          import sqlite3
+          try:
+              c=sqlite3.connect("data/numbo.db")
+              print(c.execute("SELECT COUNT(*) FROM contacts").fetchone()[0])
+              c.close()
+          except Exception:
+              print(0)
+          PY
+              )
+              if [ "$count" -gt 0 ]; then
+                found=1
+                echo "Contacts persisted: $count"
+                break
+              fi
+            fi
+          done
+          test "$found" -eq 1
+
+      - name: Verify persisted data and extraction
+        run: |
+          python - <<'PY'
+          import sqlite3, json
+          c=sqlite3.connect("data/numbo.db")
+          c.row_factory=sqlite3.Row
+          rows=c.execute("SELECT source_url, domain, phones, emails, technologies FROM contacts").fetchall()
+          assert rows, "No persisted contacts"
+          print(json.dumps([dict(r) for r in rows], ensure_ascii=False, indent=2))
+          assert any("127.0.0.1" in r["domain"] for r in rows)
+          assert any("example.test" in (r["emails"] or "") for r in rows)
+          c.close()
+          PY
+          curl --fail --silent http://127.0.0.1:8080/api/stats > stats-after-local.json
+          cat stats-after-local.json
+
+      - name: Verify export endpoint
+        run: |
+          curl --fail --silent -o live-export.xlsx http://127.0.0.1:8080/export
+          test -s live-export.xlsx
+          file live-export.xlsx
+
+      - name: Verify crawler stop through UI
+        run: |
+          curl --fail --silent -X POST http://127.0.0.1:8080/stop > /dev/null
+          sleep 2
+          curl --fail --silent http://127.0.0.1:8080/api/stats > stats-stopped.json
+          cat stats-stopped.json
+          python - <<'PY'
+          import json
+          x=json.load(open("stats-stopped.json"))
+          assert x["running"] is False, x
+          assert x["total"] > 0, x
+          PY
+
+      - name: Restore production config
+        run: cp config.live.json config.json
+
+      - name: Run real public internet crawl
+        run: |
+          rm -rf public-data data
+          mkdir -p public-data data
+          cp config.json public-data/config.json
+          python - <<'PY'
+          import json
+          p="config.json"
+          c=json.load(open(p))
+          c["allowed_tlds"]=[]
+          json.dump(c, open(p,"w"), ensure_ascii=False, indent=2)
+          open("seeds.txt","w").write("https://woogit.ir/\n")
+          PY
+          timeout 90s python -m scrapy crawl contact -a seeds_file=seeds.txt -s CLOSESPIDER_PAGECOUNT=5 -s DEPTH_LIMIT=1 -s LOG_FILE=public-crawl.log
+          python - <<'PY'
+          import sqlite3, json, os
+          assert os.path.exists("data/numbo.db"), "Public crawl did not create DB"
+          c=sqlite3.connect("data/numbo.db")
+          c.row_factory=sqlite3.Row
+          rows=c.execute("SELECT source_url, domain, title, phones, emails, technologies FROM contacts").fetchall()
+          print(json.dumps([dict(r) for r in rows], ensure_ascii=False, indent=2))
+          assert rows, "Public crawl completed but persisted zero results"
+          c.close()
+          PY
+
+      - name: Build live E2E summary
+        if: always()
+        run: |
+          {
+            echo "# Numbo 2 Live E2E"
+            echo
+            echo "## Local UI / crawler"
+            cat stats-after-local.json 2>/dev/null || true
+            echo
+            echo "## Public crawl"
+            echo "https://woogit.ir/"
+            echo
+            echo "## Public crawl log (tail)"
+            tail -n 80 public-crawl.log 2>/dev/null || true
+          } > live-e2e-summary.md
+          cat live-e2e-summary.md
+
+      - name: Upload live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: numbo-2-live-e2e
+          path: |
+            health.json
+            stats-before.json
+            stats-after-local.json
+            stats-stopped.json
+            data/numbo.db
+            live-export.xlsx
+            public-crawl.log
+            public-data/config.json
+            live-e2e-summary.md
+            ui.log
+            fixture.log
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f ui.pid ]; then kill "$(cat ui.pid)" 2>/dev/null || true; fi
+          if [ -f fixture.pid ]; then kill "$(cat fixture.pid)" 2>/dev/null || true; fi
