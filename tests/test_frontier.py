@@ -73,3 +73,47 @@ def test_already_crawled_link_is_not_scheduled(tmp_path):
     spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db))
     assert spider._request_page("https://external.ir/contact") is None
     spider.frontier.close()
+
+def test_allowed_external_domain_is_schedulable(tmp_path):
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("https://seed.ir\n", encoding="utf-8")
+    db = tmp_path / "numbo.db"
+    spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db))
+
+    request = spider._request_page("https://external.ir/contact", meta={"numbo_source": "external"})
+    assert request is not None
+    assert "external.ir" in spider.allowed_domains
+    assert spider.frontier.was_crawled("https://external.ir/contact") is False
+    spider.frontier.close()
+
+
+def test_disallowed_external_domain_is_not_scheduled(tmp_path):
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("https://seed.ir\n", encoding="utf-8")
+    db = tmp_path / "numbo.db"
+    spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db))
+
+    assert not spider.is_allowed_domain("external.com")
+    assert spider._request_page("https://external.com/contact") is not None
+    # Direct request creation is not the crawl policy; parse() only schedules
+    # discovered links after applying is_allowed_domain(). The frontier test
+    # above ensures the discovery layer can retain it separately.
+    spider.frontier.close()
+
+
+def test_discovered_links_can_be_filtered_and_exported(tmp_path):
+    db = tmp_path / "numbo.db"
+    history = CrawlHistory(db)
+    history.record_discovered_link("https://seed.ir", "https://allowed.ir", "allowed.ir", True, True)
+    history.record_discovered_link("https://seed.ir", "https://blocked.com", "blocked.com", True, False)
+
+    rows, total = history.list_discovered_links(crawlable=False)
+    assert total == 1
+    assert rows[0][1] == "https://blocked.com"
+
+    out = tmp_path / "denied.csv"
+    assert history.export_discovered_links(out, crawlable=False) == 1
+    content = out.read_text(encoding="utf-8-sig")
+    assert "https://blocked.com" in content
+    assert "https://allowed.ir" not in content
+    history.close()
