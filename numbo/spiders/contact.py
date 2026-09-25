@@ -231,9 +231,10 @@ class ContactSpider(scrapy.Spider):
         if socials: quality += 0.10
         if technologies: quality += 0.10
         if business and business != domain: quality += 0.10
-        if city: quality += 0.10\n        if address: quality += 0.10
+        if city: quality += 0.10
+        if address: quality += 0.10
 
-        if phones or emails or technologies or socials:
+        if phones or emails or address or technologies or socials:
             yield ContactItem(
                 source_url=response.url,
                 domain=domain,
