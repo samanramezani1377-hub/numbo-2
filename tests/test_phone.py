@@ -11,6 +11,25 @@ def test_mobile_plus98():
     assert "09121234567" in phones
 
 
+def test_persian_mobile():
+    phones = extract_phones("تماس: ۰۹۱۲۱۲۳۴۵۶۷")
+    assert "09121234567" in phones
+
+
+def test_landline():
+    phones = extract_phones("دفتر: 02112345678")
+    assert "02112345678" in phones
+
+
 def test_normalize():
     assert normalize_iranian("+989351112233") == "09351112233"
     assert normalize_iranian("989121234567") == "09121234567"
+
+
+def test_reject_fake_numbers():
+    text = "SKU 1788017469 price 987654321 size 120x200 code +0152-0153"
+    assert extract_phones(text) == []
+
+
+def test_reject_partial_mobile():
+    assert extract_phones("1234567890") == []
