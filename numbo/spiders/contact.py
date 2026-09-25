@@ -129,6 +129,11 @@ class ContactSpider(scrapy.Spider):
         return True
 
     def _request_page(self, url, priority=0, meta=None):
+        target_domain = self._site_key(url)
+        if self.is_allowed_domain(target_domain) and target_domain not in self.allowed_domains:
+            # Keep Scrapy's OffsiteMiddleware in sync for configuration-allowed
+            # domains discovered after the spider starts.
+            self.allowed_domains.append(target_domain)
         if not self._reserve_page(url):
             return None
         request_meta = dict(meta or {})
