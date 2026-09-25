@@ -1,21 +1,15 @@
-"""
-Technology detection for websites.
-Detects common CMS, e-commerce, frameworks and libraries from HTML + headers.
-"""
+"""Technology detection for websites."""
 import re
 from typing import Dict, List, Tuple
-from urllib.parse import urlparse
 
 
-# هر تکنولوژی: لیست (pattern, weight, where)
-# where: "html", "script", "link", "meta", "header", "url"
 RULES: Dict[str, List[Tuple[str, float, str]]] = {
     "WordPress": [
         (r"wp-content", 0.9, "html"),
         (r"wp-includes", 0.9, "html"),
         (r"/wp-json/", 0.8, "html"),
         (r"wordpress", 0.6, "html"),
-        (r'name=["']generator["'][^>]*content=["']WordPress', 0.95, "meta"),
+        (r"name=[\"']generator[\"'][^>]*content=[\"']WordPress", 0.95, "meta"),
         (r"wp-emoji", 0.7, "html"),
         (r"wp-block", 0.6, "html"),
     ],
@@ -30,23 +24,23 @@ RULES: Dict[str, List[Tuple[str, float, str]]] = {
     "Joomla": [
         (r"/media/jui/", 0.8, "html"),
         (r"/components/com_", 0.7, "html"),
-        (r'name=["']generator["'][^>]*content=["']Joomla', 0.95, "meta"),
+        (r"name=[\"']generator[\"'][^>]*content=[\"']Joomla", 0.95, "meta"),
         (r"joomla", 0.5, "html"),
     ],
     "Drupal": [
-        (r"Drupal\.settings", 0.9, "html"),
+        (r"Drupal\\.settings", 0.9, "html"),
         (r"/sites/default/files", 0.7, "html"),
-        (r'name=["']generator["'][^>]*content=["']Drupal', 0.95, "meta"),
+        (r"name=[\"']generator[\"'][^>]*content=[\"']Drupal", 0.95, "meta"),
         (r"drupal", 0.5, "html"),
     ],
     "Shopify": [
-        (r"cdn\.shopify\.com", 0.95, "html"),
-        (r"Shopify\.theme", 0.9, "html"),
+        (r"cdn\\.shopify\\.com", 0.95, "html"),
+        (r"Shopify\\.theme", 0.9, "html"),
         (r"shopify", 0.6, "html"),
-        (r"myshopify\.com", 0.85, "url"),
+        (r"myshopify\\.com", 0.85, "url"),
     ],
     "Magento": [
-        (r"Mage\.Cookies", 0.9, "html"),
+        (r"Mage\\.Cookies", 0.9, "html"),
         (r"/static/version", 0.7, "html"),
         (r"magento", 0.5, "html"),
     ],
@@ -83,11 +77,11 @@ RULES: Dict[str, List[Tuple[str, float, str]]] = {
     ],
     "Bootstrap": [
         (r"bootstrap", 0.7, "html"),
-        (r"bootstrap\.min\.(css|js)", 0.85, "link"),
+        (r"bootstrap\\.min\\.(css|js)", 0.85, "link"),
     ],
     "jQuery": [
         (r"jquery", 0.6, "script"),
-        (r"jquery\.min\.js", 0.8, "script"),
+        (r"jquery\\.min\\.js", 0.8, "script"),
     ],
     "Cloudflare": [
         (r"cloudflare", 0.7, "html"),
@@ -95,57 +89,41 @@ RULES: Dict[str, List[Tuple[str, float, str]]] = {
         (r"__cfduid", 0.6, "header"),
     ],
     "Google Analytics": [
-        (r"google-analytics\.com|googletagmanager\.com|gtag\(", 0.85, "html"),
-        (r"UA-\d+-\d+|G-[A-Z0-9]+", 0.7, "html"),
+        (r"google-analytics\\.com|googletagmanager\\.com|gtag\\(", 0.85, "html"),
+        (r"UA-\\d+-\\d+|G-[A-Z0-9]+", 0.7, "html"),
     ],
     "Google Tag Manager": [
-        (r"googletagmanager\.com", 0.9, "html"),
+        (r"googletagmanager\\.com", 0.9, "html"),
         (r"GTM-[A-Z0-9]+", 0.85, "html"),
     ],
 }
 
 
-def detect_technologies(
-    html: str = "",
-    url: str = "",
-    headers: dict = None,
-) -> List[Dict[str, object]]:
-    """
-    Returns list of detected technologies with confidence score (0-1).
-    Example:
-    [
-      {"name": "WordPress", "confidence": 0.95, "evidence": ["wp-content", "generator"]},
-      {"name": "WooCommerce", "confidence": 0.85, "evidence": ["woocommerce"]},
-    ]
-    """
+def detect_technologies(html: str = "", url: str = "", headers: dict = None) -> List[Dict[str, object]]:
     headers = headers or {}
     html_lower = (html or "").lower()
     url_lower = (url or "").lower()
 
-    # Extract useful parts once
     meta_content = " ".join(
-        re.findall(r'<meta[^>]+content=["']([^"']+)["']', html or "", re.I)
+        re.findall(r"<meta[^>]+content=[\"']([^\"']+)[\"']", html or "", re.I)
     ).lower()
     script_srcs = " ".join(
-        re.findall(r'<script[^>]+src=["']([^"']+)["']', html or "", re.I)
+        re.findall(r"<script[^>]+src=[\"']([^\"']+)[\"']", html or "", re.I)
     ).lower()
     link_hrefs = " ".join(
-        re.findall(r'<link[^>]+href=["']([^"']+)["']', html or "", re.I)
+        re.findall(r"<link[^>]+href=[\"']([^\"']+)[\"']", html or "", re.I)
     ).lower()
 
     header_str = " ".join(f"{k}:{v}".lower() for k, v in headers.items())
-
     results = []
 
     for tech, rules in RULES.items():
         score = 0.0
         evidence = []
         max_possible = 0.0
-
         for pattern, weight, where in rules:
             max_possible += weight
             matched = False
-
             if where == "html" and re.search(pattern, html_lower, re.I):
                 matched = True
             elif where == "meta" and re.search(pattern, meta_content, re.I):
@@ -158,28 +136,22 @@ def detect_technologies(
                 matched = True
             elif where == "url" and re.search(pattern, url_lower, re.I):
                 matched = True
-
             if matched:
                 score += weight
                 evidence.append(pattern[:40])
-
         if score > 0:
             confidence = min(round(score / max(max_possible * 0.6, 0.01), 2), 1.0)
-            # threshold
             if confidence >= 0.35:
                 results.append({
                     "name": tech,
                     "confidence": confidence,
-                    "evidence": evidence[:5],  # limit evidence
+                    "evidence": evidence[:5],
                 })
-
-    # sort by confidence desc
     results.sort(key=lambda x: x["confidence"], reverse=True)
     return results
 
 
 def format_technologies(techs: List[Dict]) -> str:
-    """Human readable string for storage."""
     if not techs:
         return ""
     return "; ".join(f"{t['name']}({t['confidence']})" for t in techs)
