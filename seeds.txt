@@ -1,0 +1,6 @@
+# هر خط یک دامنه یا URL کامل
+# مثال:
+# example.com
+# https://www.example.ir
+# digikala.com
+
