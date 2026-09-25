@@ -114,6 +114,28 @@ class SQLitePipeline:
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, values)
             self.conn.commit()
+        except sqlite3.OperationalError as exc:
+            # The UI can export while the crawler is writing. Retry transient
+            # SQLite locks instead of dropping a valid lead.
+            if "locked" not in str(exc).lower():
+                spider.logger.error("DB error: %s", exc)
+                raise
+            import time
+            for attempt in range(6):
+                try:
+                    time.sleep(0.25 * (2 ** attempt))
+                    self.conn.execute("""
+                        INSERT OR IGNORE INTO contacts
+                        (source_url,domain,title,phones,emails,address,business_name,category,city,
+                         socials,technologies,crawled_at,quality_score,evidence)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """, values)
+                    self.conn.commit()
+                    break
+                except sqlite3.OperationalError as retry_exc:
+                    if "locked" not in str(retry_exc).lower() or attempt == 5:
+                        spider.logger.error("DB error after lock retries: %s", retry_exc)
+                        raise
         except sqlite3.Error as exc:
             spider.logger.error("DB error: %s", exc)
             raise
