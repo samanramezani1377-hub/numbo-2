@@ -12,6 +12,7 @@ from numbo.utils.category import (
 from numbo.utils.tech import detect_technologies
 from numbo.config import load as load_config
 from numbo.frontier import CrawlHistory
+from numbo.qualification import qualify_record
 
 class ContactSpider(scrapy.Spider):
     name = "contact"
@@ -281,7 +282,12 @@ class ContactSpider(scrapy.Spider):
         if city: quality += 0.10
         if address: quality += 0.10
 
-        if phones or emails or address or technologies or socials:
+        qualified = qualify_record({"domain": domain, "phones": phones, "emails": emails, "address": address, "business_name": business, "category": category})
+        if qualified:
+            phones = qualified["phones"]
+            emails = qualified["emails"]
+            business = qualified["business_name"]
+            address = qualified["address"]
             yield ContactItem(
                 source_url=response.url,
                 domain=domain,
