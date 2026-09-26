@@ -280,7 +280,7 @@ def prepare_export_dataframe(df):
         mobile_width = int(mobiles.map(len).max()) if len(mobiles) else 0
         landline_width = int(landlines.map(len).max()) if len(landlines) else 0
         for index in range(mobile_width):
-            df[f"number_{index + 1}"] = mobiles.map(
+            df[f"phone_{index + 1}"] = mobiles.map(
                 lambda items, i=index: items[i] if i < len(items) else ""
             )
         for index in range(landline_width):
