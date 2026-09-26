@@ -14,6 +14,7 @@ import pandas as pd
 
 from numbo.utils.tech import TECH_ORDER, sort_technologies
 from numbo.qualification import qualify_record
+from numbo.utils.phone import classify_phone, normalize_iranian
 
 DB_PATH = os.path.join("data", "numbo.db")
 OUT_DIR = "data"
@@ -263,8 +264,30 @@ def prepare_export_dataframe(df):
     """Prepare a one-row-per-site export with no multi-value cells."""
     df = df.copy()
 
-    # Contacts: each phone/email has its own cell.
-    df = _expand_column(df, "phones", "phone")
+    # Contacts: mobile numbers go to number_1, number_2, ... and fixed
+    # lines go to tel_1, tel_2, ... . Never mix the two kinds.
+    if "phones" in df.columns:
+        parsed = df["phones"].apply(_split_values)
+        mobiles = parsed.map(lambda items: [
+            normalize_iranian(item) for item in items
+            if classify_phone(item) == "mobile"
+        ])
+        landlines = parsed.map(lambda items: [
+            normalize_iranian(item) for item in items
+            if classify_phone(item) == "landline"
+        ])
+        df = df.drop(columns=["phones"])
+        mobile_width = int(mobiles.map(len).max()) if len(mobiles) else 0
+        landline_width = int(landlines.map(len).max()) if len(landlines) else 0
+        for index in range(mobile_width):
+            df[f"number_{index + 1}"] = mobiles.map(
+                lambda items, i=index: items[i] if i < len(items) else ""
+            )
+        for index in range(landline_width):
+            df[f"tel_{index + 1}"] = landlines.map(
+                lambda items, i=index: items[i] if i < len(items) else ""
+            )
+
     df = _expand_column(df, "emails", "email")
 
     # Technologies use stable dataset-wide positions: a given technology
@@ -309,14 +332,14 @@ def main():
     csv_path = os.path.join(OUT_DIR, f"contacts_{ts}.csv")
     xlsx_path = os.path.join(OUT_DIR, f"contacts_{ts}.xlsx")
 
-    for column in [c for c in df.columns if c.startswith("phone_") or c.startswith("email_")]:
+    for column in [c for c in df.columns if c.startswith("number_") or c.startswith("tel_") or c.startswith("email_")]:
         df[column] = df[column].fillna("").astype(str)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
         df.to_excel(writer, index=False)
         ws = writer.sheets["Sheet1"]
         for idx, column in enumerate(df.columns, start=1):
-            if column.startswith("phone_") or column.startswith("email_"):
+            if column.startswith("number_") or column.startswith("tel_") or column.startswith("email_"):
                 for cells in ws.iter_cols(min_col=idx, max_col=idx, min_row=2):
                     for cell in cells:
                         cell.number_format = "@"
