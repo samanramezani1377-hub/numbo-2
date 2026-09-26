@@ -20,6 +20,7 @@ load_dotenv(BASE_DIR / ".env")
 
 from numbo.config import load as load_config, save as save_config  # noqa: E402
 from numbo.utils.phone import split_phones
+from numbo.qualification import qualify_record
 
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "numbo.db"
@@ -63,12 +64,14 @@ def get_stats():
     if not conn:
         return empty
     try:
-        total = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
-        phones = conn.execute("SELECT COUNT(*) FROM contacts WHERE phones IS NOT NULL AND phones != ''").fetchone()[0]
-        emails = conn.execute("SELECT COUNT(*) FROM contacts WHERE emails IS NOT NULL AND emails != ''").fetchone()[0]
-        wordpress = conn.execute("SELECT COUNT(*) FROM contacts WHERE technologies LIKE '%WordPress%'").fetchone()[0]
-        woocommerce = conn.execute("SELECT COUNT(*) FROM contacts WHERE technologies LIKE '%WooCommerce%'").fetchone()[0]
-        cities = conn.execute("SELECT COUNT(DISTINCT city) FROM contacts WHERE city IS NOT NULL AND city != ''").fetchone()[0]
+        raw = conn.execute("SELECT * FROM contacts").fetchall()
+        qualified = [dict(row) for row in raw if qualify_record(dict(row))]
+        total = len(qualified)
+        phones = sum(bool(r.get("phones")) for r in qualified)
+        emails = sum(bool(r.get("emails")) for r in qualified)
+        wordpress = sum("WordPress" in (r.get("technologies") or "") for r in qualified)
+        woocommerce = sum("WooCommerce" in (r.get("technologies") or "") for r in qualified)
+        cities = len({r.get("city") for r in qualified if r.get("city")})
         return {
             "total": total,
             "phones": phones,
@@ -238,7 +241,8 @@ async def list_contacts(
     ).fetchall()
     conn.close()
 
-    # Present one lead row per domain instead of one row per crawled page.
+    # Present only qualified leads, one row per domain.
+    raw_rows = [dict(raw) for raw in raw_rows if qualify_record(dict(raw))]
     grouped = {}
     for raw in raw_rows:
         domain = (raw["domain"] or "").strip().lower()
