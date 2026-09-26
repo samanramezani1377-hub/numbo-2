@@ -58,7 +58,7 @@ jobs:
           c = json.load(open(p))
           c["allowed_tlds"] = []
           c["cycle_delay"] = 999999
-          c["panel_port"] = 18080
+          c["panel_port"] = 8080
           json.dump(c, open(p, "w"), ensure_ascii=False, indent=2)
           PY
           cat > live-fixture/index.html <<'EOF'
@@ -72,21 +72,31 @@ jobs:
           cat > live-fixture/about.html <<'EOF'
           <!doctype html><html><body><h1>About</h1><p>WordPress WooCommerce shop.</p></body></html>
           EOF
-          nohup python -m http.server 8765 --directory live-fixture > fixture.log 2>&1 </dev/null &
+          python -m http.server 8765 --directory live-fixture > fixture.log 2>&1 &
           echo $! > fixture.pid
-          disown || true
           sleep 2
           curl --fail --silent http://127.0.0.1:8765/ >/dev/null
-          NUMBO_PORT=18080 nohup python start_ui.py > ui.log 2>&1 </dev/null &
+          nohup python start_ui.py > ui.log 2>&1 &
           echo $! > ui.pid
-          disown || true
           for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18080/health > health.json; then break; fi
+            if curl --fail --silent http://127.0.0.1:8080/health > health.json; then break; fi
             sleep 1
           done
           test -s health.json
-          curl --fail --silent -X POST http://127.0.0.1:18080/seeds --data-urlencode "seeds=http://127.0.0.1:8765/"
-          curl --fail --silent -X POST http://127.0.0.1:18080/start >/dev/null
+          curl --fail --silent -X POST http://127.0.0.1:8080/seeds --data-urlencode "seeds=http://127.0.0.1:8765/"
+          curl --fail --silent -X POST http://127.0.0.1:8080/start >/dev/null
+          for i in $(seq 1 10); do
+            if [ -s numbo.log ] && [ -f data/crawler.pid ]; then break; fi
+            sleep 1
+          done
+          if [ ! -s numbo.log ] || [ ! -f data/crawler.pid ]; then
+            echo "ERROR: /start did not launch the crawler"
+            echo "=== UI LOG ==="
+            tail -n 100 ui.log 2>/dev/null || true
+            echo "=== PROCESS TABLE ==="
+            ps -ef | grep -E "start_ui.py|run.py|uvicorn" | grep -v grep || true
+            exit 1
+          fi
           found=0
           for i in $(seq 1 60); do
             sleep 1
@@ -114,15 +124,48 @@ jobs:
           print(f"Persisted contacts: {len(rows)}")
           c.close()
           PY
-          curl --fail --silent -o fixture-export.xlsx http://127.0.0.1:18080/export
+          curl --fail --silent -o fixture-export.xlsx http://127.0.0.1:8080/export
           test -s fixture-export.xlsx
-          curl --fail --silent -X POST http://127.0.0.1:18080/stop >/dev/null
-          curl --fail --silent http://127.0.0.1:18080/api/stats > stats-pre-live.json
+          curl --fail --silent -X POST http://127.0.0.1:8080/stop >/dev/null
+          curl --fail --silent http://127.0.0.1:8080/api/stats > stats-pre-live.json
           cat stats-pre-live.json
           cp config.live-backup.json config.json
-          # Keep the fixture UI isolated on 18080 while the live session starts on 8080.
-          # There is no port conflict, so forcing a mid-job process teardown only adds
-          # an unrelated failure mode. The final Cleanup step removes both UIs.
+          # The fixture UI is only for local E2E. Stop the exact process and verify
+          # that port 8080 is free before starting the public live session.
+          if [ -f ui.pid ]; then
+            kill "$(cat ui.pid)" 2>/dev/null || true
+          fi
+          pkill -TERM -f "python start_ui.py" 2>/dev/null || true
+          for i in $(seq 1 30); do
+            if ! curl --silent --show-error --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          if curl --silent --show-error --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1; then
+            echo "ERROR: old Numbo UI is still serving on port 8080"
+            exit 1
+          fi
+          if command -v fuser >/dev/null 2>&1; then
+            sudo fuser -k 8080/tcp 2>/dev/null || true
+          fi
+          sleep 1
+
+      - name: Upload fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: numbo-2-fixture-evidence
+          path: |
+            health.json
+            fixture.log
+            ui.log
+            numbo.log
+            data/numbo.db
+            data/crawler.pid
+            fixture-export.xlsx
+            stats-pre-live.json
+          if-no-files-found: warn
 
       - name: Prepare live session
         run: |
