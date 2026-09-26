@@ -171,3 +171,23 @@ class CrawlHistory:
             writer.writerow(["source_url", "target_url", "target_domain", "crawlable", "first_seen"])
             writer.writerows(rows)
         return len(rows)
+
+
+    def next_crawl_batch(self, domain, limit=20):
+        """Return discovered crawlable URLs for a domain that have not completed crawling.
+
+        URLs already present in crawl_urls as queued/crawled are skipped. Failed URLs
+        remain eligible so the normal reservation logic can retry them.
+        """
+        rows = self.conn.execute(
+            """SELECT d.target_url
+               FROM discovered_links d
+               LEFT JOIN crawl_urls c ON c.url = d.target_url
+               WHERE d.target_domain = ?
+                 AND d.crawlable = 1
+                 AND (c.url IS NULL OR c.status = 'failed')
+               ORDER BY d.first_seen ASC
+               LIMIT ?""",
+            (domain, max(int(limit), 1)),
+        ).fetchall()
+        return [row[0] for row in rows]
