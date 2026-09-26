@@ -14,7 +14,7 @@ from numbo.utils.category import (
 from numbo.utils.tech import detect_technologies
 from numbo.config import load as load_config
 from numbo.frontier import CrawlHistory
-from numbo.qualification import qualify_record
+from numbo.qualification import qualify_record, is_blocked_lead_domain
 
 class ContactSpider(scrapy.Spider):
     name = "contact"
@@ -372,6 +372,10 @@ class ContactSpider(scrapy.Spider):
             # allowed by the current configuration, even when it belongs
             # to a different domain. Disallowed links remain discovery-only.
             if not self.is_allowed_domain(target_domain):
+                continue
+            # Keep known platform/utility destinations in discovery history,
+            # but never spend crawl budget or retry time on them.
+            if is_blocked_lead_domain(target_domain):
                 continue
             # Keep social/share action URLs in discovery history, but do not
             # spend crawl budget on endpoints that are not content pages.
