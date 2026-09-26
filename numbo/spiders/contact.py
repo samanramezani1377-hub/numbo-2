@@ -35,7 +35,8 @@ class ContactSpider(scrapy.Spider):
         self.page_budget = max(1, int(page_budget_arg if page_budget_arg is not None else default_budget))
         self.start_urls, self.allowed_domains = [], []
         self.seed_domains = set()
-        self.site_pages = {}\n        self._batch_no = 1
+        self.site_pages = {}
+        self._batch_no = 1
         self.frontier = CrawlHistory(frontier_db)
         self.allowed_tlds = [t.lower().strip() for t in
                              (load_config().get("allowed_tlds") or []) if str(t).strip()]
@@ -179,7 +180,8 @@ class ContactSpider(scrapy.Spider):
             meta=request_meta,
         )
 
-    @classmethod\n    def from_crawler(cls, crawler, *args, **kwargs):
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
         spider = super().from_crawler(crawler, *args, **kwargs)
         crawler.signals.connect(spider.spider_idle, signal=signals.spider_idle)
         return spider
@@ -275,7 +277,8 @@ class ContactSpider(scrapy.Spider):
         ]
         # Keep a line-oriented version for address labels; collapsing everything
         # into one string lets a label accidentally capture the next 300 chars.
-        visible_text = "\n".join(visible_chunks)
+        visible_text = "
+".join(visible_chunks)
         text = " ".join(visible_chunks)
         html = response.text or ""
         title = response.css("title::text").get(default="").strip()
