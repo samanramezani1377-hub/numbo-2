@@ -174,10 +174,10 @@ class CrawlHistory:
 
 
     def next_crawl_batch(self, domain, limit=20):
-        """Return discovered crawlable URLs for a domain that have not completed crawling.
+        """Return the next undiscovered/unqueued batch for a domain.
 
-        URLs already present in crawl_urls as queued/crawled are skipped. Failed URLs
-        remain eligible so the normal reservation logic can retry them.
+        Failed URLs are not retried inside the same crawl cycle. They remain
+        recorded as failed and can be retried by a later crawl cycle.
         """
         rows = self.conn.execute(
             """SELECT d.target_url
@@ -185,7 +185,7 @@ class CrawlHistory:
                LEFT JOIN crawl_urls c ON c.url = d.target_url
                WHERE d.target_domain = ?
                  AND d.crawlable = 1
-                 AND (c.url IS NULL OR c.status = 'failed')
+                 AND c.url IS NULL
                ORDER BY d.first_seen ASC
                LIMIT ?""",
             (domain, max(int(limit), 1)),
