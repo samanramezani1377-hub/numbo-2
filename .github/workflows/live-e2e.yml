@@ -77,7 +77,7 @@ jobs:
           disown || true
           sleep 2
           curl --fail --silent http://127.0.0.1:8765/ >/dev/null
-          nohup python start_ui.py > ui.log 2>&1 </dev/null &
+          NUMBO_PORT=18080 nohup python start_ui.py > ui.log 2>&1 </dev/null &
           echo $! > ui.pid
           disown || true
           for i in $(seq 1 30); do
@@ -128,7 +128,7 @@ jobs:
         run: |
           rm -rf data
           mkdir -p data
-          nohup python start_ui.py > live-ui.log 2>&1 &
+          NUMBO_PORT=8080 nohup python start_ui.py > live-ui.log 2>&1 &
           echo $! > live-ui.pid
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8080/health > live-health.json; then break; fi
