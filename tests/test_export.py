@@ -127,3 +127,19 @@ def test_technology_columns_keep_the_same_meaning_across_rows():
 
     assert list(result["technology_1"]) == ["", "WordPress", "WordPress"]
     assert list(result["technology_2"]) == ["jQuery", "", "jQuery"]
+
+def test_sqlite_text_contacts_survive_export_qualification():
+    from export import qualify_export_record
+
+    result = qualify_export_record({
+        "domain": "example.ir",
+        "phones": "09120000000,02112345678",
+        "emails": "one@example.ir,two@example.ir",
+        "business_name": "Example",
+        "address": "",
+        "category": "",
+    })
+
+    assert result is not None
+    assert result["phones"] == ["09120000000", "02112345678"]
+    assert result["emails"] == ["one@example.ir", "two@example.ir"]
