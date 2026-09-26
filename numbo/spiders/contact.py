@@ -144,6 +144,15 @@ class ContactSpider(scrapy.Spider):
             return True
         if host == "wa.me" or host == "api.whatsapp.com":
             return True
+        # Some sites accidentally turn external share links into local paths,
+        # e.g. /ble.ir/<channel>. Keep them in discovery history, but do not
+        # spend crawl budget on them.
+        known_external_path_prefixes = (
+            "/ble.ir/", "/t.me/", "/telegram.me/", "/facebook.com/",
+            "/instagram.com/", "/linkedin.com/", "/twitter.com/", "/x.com/",
+        )
+        if any(path.startswith(prefix) for prefix in known_external_path_prefixes):
+            return True
         return False
 
     def _reserve_page(self, url, seed=False):
@@ -151,7 +160,10 @@ class ContactSpider(scrapy.Spider):
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         if url in state["scheduled"]:
             return False
-        if state["batch_count"] + len(state["scheduled"]) >= self.page_budget:
+        # batch_count already includes every URL reserved for this batch.
+        # Adding len(scheduled) double-counts pending requests and cuts a
+        # 20-page batch roughly in half.
+        if state["batch_count"] >= self.page_budget:
             return False
         if seed:
             self.frontier.reserve_seed(url, domain)
