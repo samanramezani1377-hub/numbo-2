@@ -1,6 +1,8 @@
 import os
 import re
 import scrapy
+from scrapy import signals
+from scrapy.exceptions import DontCloseSpider
 from urllib.parse import urlparse, urljoin, urldefrag, urlunparse, parse_qsl, urlencode
 from datetime import datetime
 from numbo.items import ContactItem
@@ -16,7 +18,7 @@ from numbo.qualification import qualify_record
 
 class ContactSpider(scrapy.Spider):
     name = "contact"
-    custom_settings = {"DEPTH_LIMIT": 4, "NUMBO_PAGE_BUDGET": 20}
+    custom_settings = {"DEPTH_LIMIT": 0, "NUMBO_PAGE_BUDGET": 20}
 
     IMPORTANT_PATHS = ("contact", "contact-us", "about", "about-us", "تماس", "درباره", "tamas")
     SKIP_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
@@ -165,6 +167,8 @@ class ContactSpider(scrapy.Spider):
             self.allowed_domains.append(target_domain)
         if not self._reserve_page(url, seed=seed):
             return None
+        state = self.site_pages[self._site_key(url)]
+        state["batch_count"] += 1
         request_meta = dict(meta or {})
         request_meta["numbo_site"] = self._site_key(url)
         return scrapy.Request(
@@ -248,7 +252,7 @@ class ContactSpider(scrapy.Spider):
 
     def parse(self, response):
         domain = self._site_key(response.url)
-        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         requested_url = self._canonical_url(response.request.url)
         state["scheduled"].discard(requested_url)
         state["scheduled"].discard(self._canonical_url(response.url))
