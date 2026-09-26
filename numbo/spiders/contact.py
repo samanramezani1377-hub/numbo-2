@@ -33,7 +33,7 @@ class ContactSpider(scrapy.Spider):
         self.page_budget = max(1, int(page_budget_arg if page_budget_arg is not None else default_budget))
         self.start_urls, self.allowed_domains = [], []
         self.seed_domains = set()
-        self.site_pages = {}
+        self.site_pages = {}\n        self._batch_no = 1
         self.frontier = CrawlHistory(frontier_db)
         self.allowed_tlds = [t.lower().strip() for t in
                              (load_config().get("allowed_tlds") or []) if str(t).strip()]
@@ -58,7 +58,7 @@ class ContactSpider(scrapy.Spider):
                         self.start_urls.append(line)
                     if domain not in self.allowed_domains:
                         self.allowed_domains.append(domain)
-                    self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+                    self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         if not self.start_urls:
             self.logger.warning("No valid seeds found in %s (after TLD filter).", seeds_file)
 
@@ -145,10 +145,10 @@ class ContactSpider(scrapy.Spider):
 
     def _reserve_page(self, url, seed=False):
         domain = self._site_key(url)
-        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         if url in state["scheduled"]:
             return False
-        if state["count"] + len(state["scheduled"]) >= self.page_budget:
+        if state["batch_count"] + len(state["scheduled"]) >= self.page_budget:
             return False
         if seed:
             self.frontier.reserve_seed(url, domain)
@@ -174,6 +174,48 @@ class ContactSpider(scrapy.Spider):
             priority=priority,
             meta=request_meta,
         )
+
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        crawler.signals.connect(spider.spider_idle, signal=signals.spider_idle)
+        return spider
+
+    def spider_idle(self, spider):
+        """When the current frontier drains, open the next 20-page batch per domain."""
+        scheduled = 0
+        for domain in sorted(self.site_pages):
+            state = self.site_pages[domain]
+            pending = self.frontier.next_crawl_batch(
+                domain,
+                limit=self.page_budget,
+            )
+            if not pending:
+                continue
+
+            # The previous batch is complete. Start the next batch without
+            # requiring a new runner cycle or the global CYCLE_DELAY.
+            state["batch_count"] = 0
+            batch_scheduled = 0
+            for url in pending:
+                request = self._request_page(
+                    url,
+                    priority=10,
+                    meta={"numbo_source": "next_batch"},
+                )
+                if request:
+                    batch_scheduled += 1
+                    yield_request = getattr(self.crawler.engine, "crawl", None)
+                    if yield_request:
+                        yield_request(request)
+            if batch_scheduled:
+                scheduled += batch_scheduled
+                self.logger.info(
+                    "Starting next crawl batch for %s: %d pages (batch size=%d)",
+                    domain, batch_scheduled, self.page_budget,
+                )
+
+        if scheduled:
+            raise DontCloseSpider()
 
     def parse_aux(self, response):
         ctype = (response.headers.get("Content-Type") or b"").decode("latin1").lower()
