@@ -175,7 +175,7 @@ class ContactSpider(scrapy.Spider):
             meta=request_meta,
         )
 
-    def from_crawler(cls, crawler, *args, **kwargs):
+    @classmethod\n    def from_crawler(cls, crawler, *args, **kwargs):
         spider = super().from_crawler(crawler, *args, **kwargs)
         crawler.signals.connect(spider.spider_idle, signal=signals.spider_idle)
         return spider
@@ -241,7 +241,7 @@ class ContactSpider(scrapy.Spider):
         request = failure.request
         url = self._canonical_url(request.url)
         domain = self._site_key(url)
-        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0})
+        state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         state["scheduled"].discard(url)
         self.frontier.mark_failed(url)
         self.logger.warning("Page request failed: %s (%s)", url, failure.value)
