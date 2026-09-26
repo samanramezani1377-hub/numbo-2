@@ -28,9 +28,9 @@ def test_multi_value_fields_are_exported_to_separate_columns():
     result = prepare_export_dataframe(df)
 
     assert "phones" not in result.columns
-    assert result.loc[0, "phone_1"] == "09120000000"
-    assert result.loc[0, "phone_2"] == "09350000000"
-    assert result.loc[0, "phone_3"] == "02112345678"
+    assert result.loc[0, "number_1"] == "09120000000"
+    assert result.loc[0, "number_2"] == "09350000000"
+    assert result.loc[0, "tel_1"] == "02112345678"
 
     assert "emails" not in result.columns
     assert result.loc[0, "email_1"] == "one@example.com"
@@ -59,8 +59,8 @@ def test_shorter_rows_get_empty_cells():
 
     result = prepare_export_dataframe(df)
 
-    assert list(result["phone_1"]) == ["09120000000", "09121111111"]
-    assert list(result["phone_2"]) == ["", "09352222222"]
+    assert list(result["number_1"]) == ["09120000000", "09121111111"]
+    assert list(result["number_2"]) == ["", "09352222222"]
 
 
 def test_aggregate_contacts_merges_pages_into_one_site():
