@@ -237,6 +237,17 @@ class ContactSpider(scrapy.Spider):
                             meta={"numbo_site": self._site_key(loc), "numbo_aux": True}
                         )
                     else:
+                        # Persist sitemap URLs in the same frontier used by
+                        # normal discovered links. This lets batches continue
+                        # through sitemap URLs beyond the first 20 pages.
+                        target_domain = self._site_key(loc)
+                        self.frontier.record_discovered_link(
+                            response.url,
+                            loc,
+                            target_domain,
+                            target_domain != self._site_key(response.url),
+                            True,
+                        )
                         request = self._request_page(
                             loc, priority=15, meta={"numbo_source": "sitemap"}
                         )
