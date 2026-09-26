@@ -303,6 +303,14 @@ def prepare_export_dataframe(df):
     return df
 
 
+def qualify_export_record(record):
+    """Qualify a SQLite contact row after restoring TEXT multi-values."""
+    record = dict(record)
+    record["phones"] = _split_values(record.get("phones"))
+    record["emails"] = _split_values(record.get("emails"))
+    return qualify_record(record)
+
+
 def main():
     if not os.path.exists(DB_PATH):
         print("No database found. Run the crawler first.")
@@ -317,9 +325,7 @@ def main():
         # them back to lists before qualification; otherwise qualification
         # iterates the string character-by-character and silently drops every
         # phone/email from the export.
-        record["phones"] = _split_values(record.get("phones"))
-        record["emails"] = _split_values(record.get("emails"))
-        qualified = qualify_record(record)
+        qualified = qualify_export_record(record)
         if qualified:
             record.update(qualified)
             qualified_rows.append(record)
