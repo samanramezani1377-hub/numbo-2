@@ -391,7 +391,7 @@ class ContactSpider(scrapy.Spider):
                 continue
             # Keep social/share action URLs in discovery history, but do not
             # spend crawl budget on endpoints that are not content pages.
-            if target_domain != domain and self._is_non_content_external(full):
+            if self._is_non_content_external(full):
                 continue
             # Scrapy's OffsiteMiddleware also checks allowed_domains. Add
             # newly discovered, configuration-allowed domains dynamically so
