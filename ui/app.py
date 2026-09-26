@@ -18,8 +18,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
 
-from numbo.config import load as load_config
-from numbo.utils.phone import split_phones, save as save_config  # noqa: E402
+from numbo.config import load as load_config, save as save_config  # noqa: E402
+from numbo.utils.phone import split_phones
 
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "numbo.db"
