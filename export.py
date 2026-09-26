@@ -332,14 +332,14 @@ def main():
     csv_path = os.path.join(OUT_DIR, f"contacts_{ts}.csv")
     xlsx_path = os.path.join(OUT_DIR, f"contacts_{ts}.xlsx")
 
-    for column in [c for c in df.columns if c.startswith("number_") or c.startswith("tel_") or c.startswith("email_")]:
+    for column in [c for c in df.columns if c.startswith("phone_") or c.startswith("tel_") or c.startswith("email_")]:
         df[column] = df[column].fillna("").astype(str)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
         df.to_excel(writer, index=False)
         ws = writer.sheets["Sheet1"]
         for idx, column in enumerate(df.columns, start=1):
-            if column.startswith("number_") or column.startswith("tel_") or column.startswith("email_"):
+            if column.startswith("phone_") or column.startswith("tel_") or column.startswith("email_"):
                 for cells in ws.iter_cols(min_col=idx, max_col=idx, min_row=2):
                     for cell in cells:
                         cell.number_format = "@"
