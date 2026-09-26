@@ -72,12 +72,14 @@ jobs:
           cat > live-fixture/about.html <<'EOF'
           <!doctype html><html><body><h1>About</h1><p>WordPress WooCommerce shop.</p></body></html>
           EOF
-          python -m http.server 8765 --directory live-fixture > fixture.log 2>&1 &
+          nohup python -m http.server 8765 --directory live-fixture > fixture.log 2>&1 </dev/null &
           echo $! > fixture.pid
+          disown || true
           sleep 2
           curl --fail --silent http://127.0.0.1:8765/ >/dev/null
-          nohup python start_ui.py > ui.log 2>&1 &
+          nohup python start_ui.py > ui.log 2>&1 </dev/null &
           echo $! > ui.pid
+          disown || true
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:18080/health > health.json; then break; fi
             sleep 1
