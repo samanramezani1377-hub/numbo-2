@@ -264,7 +264,7 @@ def prepare_export_dataframe(df):
     """Prepare a one-row-per-site export with no multi-value cells."""
     df = df.copy()
 
-    # Contacts: mobile numbers go to number_1, number_2, ... and fixed
+    # Contacts: mobile numbers go to phone_1, phone_2, ... and fixed
     # lines go to tel_1, tel_2, ... . Never mix the two kinds.
     if "phones" in df.columns:
         parsed = df["phones"].apply(_split_values)
@@ -313,6 +313,12 @@ def main():
     conn.close()
     qualified_rows = []
     for record in raw.to_dict("records"):
+        # SQLite stores multi-value contacts as comma-separated TEXT. Convert
+        # them back to lists before qualification; otherwise qualification
+        # iterates the string character-by-character and silently drops every
+        # phone/email from the export.
+        record["phones"] = _split_values(record.get("phones"))
+        record["emails"] = _split_values(record.get("emails"))
         qualified = qualify_record(record)
         if qualified:
             record.update(qualified)
