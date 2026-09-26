@@ -277,8 +277,7 @@ class ContactSpider(scrapy.Spider):
         ]
         # Keep a line-oriented version for address labels; collapsing everything
         # into one string lets a label accidentally capture the next 300 chars.
-        visible_text = "
-".join(visible_chunks)
+        visible_text = "\\n".join(visible_chunks)
         text = " ".join(visible_chunks)
         html = response.text or ""
         title = response.css("title::text").get(default="").strip()
