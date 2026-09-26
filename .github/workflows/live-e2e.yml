@@ -50,6 +50,7 @@ jobs:
       - name: Verify real crawler with local fixture
         run: |
           rm -rf data live-fixture
+          rm -f health.json fixture-export.xlsx stats-pre-live.json ui.log numbo.log
           mkdir -p data live-fixture
           cp config.json config.live-backup.json
           python - <<'PY'
