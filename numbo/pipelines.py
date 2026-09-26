@@ -5,20 +5,24 @@ from datetime import datetime
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 from numbo.utils.tech import format_technologies
+from numbo.qualification import qualify_record
 
 class ValidationPipeline:
     def process_item(self, item, spider):
         a = ItemAdapter(item)
         phones = a.get("phones") or []
         emails = a.get("emails") or []
-        techs = a.get("technologies") or []
-        socials = a.get("socials") or {}
-        if not phones and not emails and not techs and not socials:
-            raise DropItem("No useful contact, technology or social data")
-        if any(not isinstance(p, str) or len(p) < 8 for p in phones):
-            raise DropItem("Invalid normalized phone")
-        if any("@" not in e or len(e) > 254 for e in emails):
-            raise DropItem("Invalid email")
+        qualified = qualify_record({
+            "domain": a.get("domain"), "phones": phones, "emails": emails,
+            "address": a.get("address"), "business_name": a.get("business_name"),
+            "category": a.get("category"),
+        })
+        if not qualified:
+            raise DropItem("Not a qualified commercial lead")
+        a["phones"] = qualified["phones"]
+        a["emails"] = qualified["emails"]
+        a["business_name"] = qualified["business_name"]
+        a["address"] = qualified["address"]
         return item
 
 class DeduplicationPipeline:
