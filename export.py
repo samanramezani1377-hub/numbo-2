@@ -13,6 +13,7 @@ from datetime import datetime
 import pandas as pd
 
 from numbo.utils.tech import TECH_ORDER, sort_technologies
+from numbo.qualification import qualify_record
 
 DB_PATH = os.path.join("data", "numbo.db")
 OUT_DIR = "data"
@@ -285,9 +286,16 @@ def main():
         return
 
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM contacts ORDER BY crawled_at DESC", conn)
-    df = aggregate_contacts_dataframe(df)
+    raw = pd.read_sql_query("SELECT * FROM contacts ORDER BY crawled_at DESC", conn)
     conn.close()
+    qualified_rows = []
+    for record in raw.to_dict("records"):
+        qualified = qualify_record(record)
+        if qualified:
+            record.update(qualified)
+            qualified_rows.append(record)
+    df = pd.DataFrame(qualified_rows, columns=raw.columns) if qualified_rows else raw.iloc[0:0].copy()
+    df = aggregate_contacts_dataframe(df)
 
     if df.empty:
         print("No contacts found yet.")
@@ -301,8 +309,19 @@ def main():
     csv_path = os.path.join(OUT_DIR, f"contacts_{ts}.csv")
     xlsx_path = os.path.join(OUT_DIR, f"contacts_{ts}.xlsx")
 
+    for column in [c for c in df.columns if c.startswith("phone_") or c.startswith("email_")]:
+        df[column] = df[column].fillna("").astype(str)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    df.to_excel(xlsx_path, index=False)
+    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+        ws = writer.sheets["Sheet1"]
+        for idx, column in enumerate(df.columns, start=1):
+            if column.startswith("phone_") or column.startswith("email_"):
+                for cells in ws.iter_cols(min_col=idx, max_col=idx, min_row=2):
+                    for cell in cells:
+                        cell.number_format = "@"
+                        if cell.value is not None:
+                            cell.value = str(cell.value)
 
     print(f"Exported {len(df)} sites/leads")
     print(f"CSV  → {csv_path}")
