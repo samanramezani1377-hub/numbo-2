@@ -15,3 +15,17 @@ class RotateUserAgentMiddleware:
 
     def process_request(self, request, spider):
         request.headers["User-Agent"] = random.choice(self.USER_AGENTS)
+
+
+class RobotsTimeoutMiddleware:
+    """Give robots.txt its own short timeout so dead robots endpoints do not stall a crawl."""
+
+    ROBOTS_TIMEOUT = 8
+
+    def process_request(self, request, spider):
+        path = request.url.split("?", 1)[0].rstrip("/").lower()
+        if path.endswith("/robots.txt"):
+            request.meta.setdefault("download_timeout", self.ROBOTS_TIMEOUT)
+            # A robots endpoint is policy metadata, not a content page. Avoid
+            # spending the full crawler retry budget on an unresponsive endpoint.
+            request.meta.setdefault("max_retry_times", 0)
