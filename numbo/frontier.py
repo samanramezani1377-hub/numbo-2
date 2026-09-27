@@ -36,12 +36,19 @@ class CrawlHistory:
                 target_domain TEXT NOT NULL,
                 external INTEGER NOT NULL DEFAULT 0,
                 crawlable INTEGER NOT NULL DEFAULT 0,
+                link_type TEXT NOT NULL DEFAULT 'anchor',
                 first_seen TEXT NOT NULL,
                 UNIQUE(source_url, target_url)
             )
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_target_domain ON discovered_links(target_domain)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_external ON discovered_links(external)")
+        # Backward-compatible migration for databases created before typed
+        # discovery edges were introduced.
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(discovered_links)").fetchall()}
+        if "link_type" not in columns:
+            self.conn.execute("ALTER TABLE discovered_links ADD COLUMN link_type TEXT NOT NULL DEFAULT 'anchor'")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_type ON discovered_links(link_type)")
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS site_technology_evidence (
                 domain TEXT NOT NULL,
@@ -136,26 +143,40 @@ class CrawlHistory:
         ))
 
     def record_discovered_links(self, links):
-        """Persist a page's discovered links in one transaction."""
-        values = [
-            (
-                source_url,
-                target_url,
-                target_domain,
-                int(external),
-                int(crawlable),
-                datetime.utcnow().isoformat(),
-            )
-            for source_url, target_url, target_domain, external, crawlable in links
-        ]
+        """Persist typed discovery edges in one transaction."""
+        values = []
+        now = datetime.utcnow().isoformat()
+        for link in links:
+            if len(link) == 5:
+                source_url, target_url, target_domain, external, crawlable = link
+                link_type = "anchor"
+            else:
+                source_url, target_url, target_domain, external, crawlable, link_type = link
+            values.append((
+                source_url, target_url, target_domain,
+                int(external), int(crawlable), str(link_type or "anchor"), now,
+            ))
         if not values:
             return
-        self._write(lambda: self.conn.executemany(
-            """INSERT OR IGNORE INTO discovered_links
-               (source_url, target_url, target_domain, external, crawlable, first_seen)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            values,
-        ))
+
+        def write():
+            self.conn.executemany(
+                """INSERT INTO discovered_links
+                   (source_url, target_url, target_domain, external, crawlable, link_type, first_seen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source_url, target_url) DO UPDATE SET
+                     crawlable=MAX(discovered_links.crawlable, excluded.crawlable),
+                     external=MAX(discovered_links.external, excluded.external),
+                     link_type=CASE
+                       WHEN discovered_links.link_type = excluded.link_type THEN discovered_links.link_type
+                       WHEN instr(',' || discovered_links.link_type || ',', ',' || excluded.link_type || ',') > 0
+                         THEN discovered_links.link_type
+                       ELSE discovered_links.link_type || ',' || excluded.link_type
+                     END""",
+                values,
+            )
+
+        self._write(write)
 
     def record_technology_evidence(self, domain, source_url, technologies):
         """Persist technology evidence independently of lead qualification."""
@@ -193,9 +214,9 @@ class CrawlHistory:
             (domain,),
         ).fetchall()
 
-    def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
+    def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable, link_type="anchor"):
         self.record_discovered_links([
-            (source_url, target_url, target_domain, external, crawlable)
+            (source_url, target_url, target_domain, external, crawlable, link_type)
         ])
 
     def list_discovered_links(self, query=None, page=1, per_page=50, crawlable=None):
