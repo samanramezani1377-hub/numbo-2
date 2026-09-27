@@ -234,7 +234,7 @@ class CrawlHistory:
         where = "WHERE " + " AND ".join(conditions)
         total = self.conn.execute(f"SELECT COUNT(*) FROM discovered_links {where}", params).fetchone()[0]
         rows = self.conn.execute(
-            f"""SELECT source_url, target_url, target_domain, crawlable, link_type, first_seen
+            f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
                 FROM discovered_links {where} ORDER BY first_seen DESC LIMIT ? OFFSET ?""",
             params + [per_page, (page - 1) * per_page],
         ).fetchall()
@@ -249,7 +249,7 @@ class CrawlHistory:
             params.append(int(bool(crawlable)))
         where = "WHERE " + " AND ".join(conditions)
         rows = self.conn.execute(
-            f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
+            f"""SELECT source_url, target_url, target_domain, crawlable, link_type, first_seen
                 FROM discovered_links {where} ORDER BY first_seen DESC""",
             params,
         ).fetchall()
