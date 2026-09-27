@@ -122,17 +122,32 @@ class CrawlHistory:
             (url,),
         ))
 
-    def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
-        values = (
-            source_url, target_url, target_domain, int(external), int(crawlable),
-            datetime.utcnow().isoformat(),
-        )
-        self._write(lambda: self.conn.execute(
+    def record_discovered_links(self, links):
+        """Persist a page's discovered links in one transaction."""
+        values = [
+            (
+                source_url,
+                target_url,
+                target_domain,
+                int(external),
+                int(crawlable),
+                datetime.utcnow().isoformat(),
+            )
+            for source_url, target_url, target_domain, external, crawlable in links
+        ]
+        if not values:
+            return
+        self._write(lambda: self.conn.executemany(
             """INSERT OR IGNORE INTO discovered_links
                (source_url, target_url, target_domain, external, crawlable, first_seen)
                VALUES (?, ?, ?, ?, ?, ?)""",
             values,
         ))
+
+    def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
+        self.record_discovered_links([
+            (source_url, target_url, target_domain, external, crawlable)
+        ])
 
     def list_discovered_links(self, query=None, page=1, per_page=50, crawlable=None):
         page = max(int(page), 1)
