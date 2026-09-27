@@ -80,6 +80,30 @@
       </div>
     </div>
 
+    <div class="bg-white rounded-xl shadow p-6">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold mb-1">روش کراول</h2>
+          <p class="text-sm text-gray-500">حالت لایه‌ای، لینک‌های عمق بعدی را تا پایان لایه فعلی فقط ذخیره می‌کند.</p>
+        </div>
+        <form action="/crawl-mode" method="post" class="flex items-center gap-3">
+          <label class="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" name="layered_crawl" value="on" class="w-5 h-5"
+              {% if layered_crawl %}checked{% endif %}>
+            <span class="font-medium">کراول لایه‌ای (BFS)</span>
+          </label>
+          <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg">ذخیره حالت</button>
+        </form>
+      </div>
+      <div class="mt-3 text-xs text-gray-500">
+        {% if layered_crawl %}
+          فعال — Seed → عمق ۱ → عمق ۲ → عمق ۳ ...
+        {% else %}
+          خاموش — الگوریتم عادی فعلی
+        {% endif %}
+      </div>
+    </div>
+
     <div class="grid md:grid-cols-2 gap-6">
       <div class="bg-white rounded-xl shadow p-6">
         <h2 class="text-lg font-semibold mb-3">لیست دامنه‌ها</h2>
