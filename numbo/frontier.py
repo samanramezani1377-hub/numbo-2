@@ -165,22 +165,36 @@ class CrawlHistory:
         now = datetime.utcnow().isoformat()
 
         def write():
+            # An explicit seed starts a fresh layered traversal each cycle.
+            is_root = seed_url == url and depth == 0
             global_crawled = self.conn.execute(
                 "SELECT 1 FROM crawl_urls WHERE url=? AND status='crawled' LIMIT 1",
                 (url,),
             ).fetchone()
-            status = "crawled" if global_crawled else "pending"
+            status = "pending" if is_root else ("crawled" if global_crawled else "pending")
+            crawled_at = None if status == "pending" else now
             self.conn.execute(
                 """INSERT INTO layered_frontier
                    (seed_url,url,depth,status,source_url,first_seen,crawled_at)
                    VALUES (?,?,?,?,?,?,?)
                    ON CONFLICT(seed_url,url) DO UPDATE SET
-                     depth=MIN(layered_frontier.depth, excluded.depth),
-                     source_url=COALESCE(layered_frontier.source_url, excluded.source_url)""",
-                (seed_url, url, depth, status, source_url, now,
-                 now if status == "crawled" else None),
+                     depth=CASE WHEN excluded.depth < layered_frontier.depth
+                                THEN excluded.depth ELSE layered_frontier.depth END,
+                     status=CASE WHEN ? THEN 'pending' ELSE layered_frontier.status END,
+                     source_url=COALESCE(layered_frontier.source_url, excluded.source_url),
+                     first_seen=CASE WHEN ? THEN excluded.first_seen ELSE layered_frontier.first_seen END,
+                     crawled_at=CASE WHEN ? THEN NULL ELSE layered_frontier.crawled_at END""",
+                (seed_url, url, depth, status, source_url, now, crawled_at,
+                 int(is_root), int(is_root), int(is_root)),
             )
         self._write(write)
+
+    def get_url_status(self, url):
+        row = self.conn.execute(
+            "SELECT status FROM crawl_urls WHERE url=? LIMIT 1",
+            (url,),
+        ).fetchone()
+        return row[0] if row else None
 
     def mark_layered_crawled(self, url):
         self._write(lambda: self.conn.execute(
