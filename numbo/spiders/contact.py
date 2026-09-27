@@ -95,7 +95,7 @@ class ContactSpider(scrapy.Spider):
                     callback=self.parse_aux,
                     priority=40,
                     dont_filter=False,
-                    meta={"numbo_site": self._site_key(seed), "numbo_aux": True},
+                    meta={"numbo_site": self._site_key(seed), "numbo_aux": True, "numbo_seed": seed},
                 )
 
     def _site_key(self, url):
@@ -438,7 +438,7 @@ class ContactSpider(scrapy.Spider):
                 if allowed:
                     yield scrapy.Request(
                         loc, callback=self.parse_aux, priority=35,
-                        meta={"numbo_site": self._site_key(loc), "numbo_aux": True}
+                        meta={"numbo_site": self._site_key(loc), "numbo_aux": True, "numbo_seed": response.request.meta.get("numbo_seed")}
                     )
             return
 
@@ -464,6 +464,10 @@ class ContactSpider(scrapy.Spider):
                         )
                     continue
                 if allowed:
+                    seed = response.request.meta.get("numbo_seed")
+                    if self.layered_crawl and seed:
+                        self.frontier.queue_layered_url(seed, loc, 1, source_url=response.url)
+                        continue
                     request = self._request_page(
                         loc, priority=15, meta={"numbo_source": "sitemap"}
                     )
