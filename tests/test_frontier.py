@@ -1,4 +1,6 @@
 from scrapy.http import HtmlResponse, Request
+from scrapy.exceptions import IgnoreRequest
+from twisted.python.failure import Failure
 
 from numbo.frontier import CrawlHistory
 from numbo.spiders.contact import ContactSpider
@@ -188,3 +190,22 @@ def test_layered_frontier_can_reopen_stale_queued_url(tmp_path):
         ("https://seed.ir/page", 1)
     ]
     history.close()
+
+
+def test_layered_robots_block_recovers_from_persistent_discovery_history(tmp_path):
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("https://torob.com/search\n", encoding="utf-8")
+    db = tmp_path / "numbo.db"
+    spider = ContactSpider(seeds_file=str(seeds), frontier_db=str(db), layered_crawl=True)
+
+    seed = "https://torob.com/search"
+    child = "https://torob.com/contact"
+    spider.frontier.record_discovered_link(seed, child, "torob.com", False, True, "anchor")
+    spider.frontier.queue_layered_url(seed, seed, 0)
+    spider.frontier.queue_layered_url(seed, child, 1, source_url=seed)
+
+    request = Request(seed, meta={"numbo_seed": seed, "numbo_depth": 0})
+    spider.request_failed(Failure(IgnoreRequest("Forbidden by robots.txt")), request=request)
+
+    assert spider.frontier.next_layered_batch(seed, limit=20) == [(child, 1)]
+    spider.frontier.close()
