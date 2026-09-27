@@ -22,6 +22,7 @@ COOKIES_ENABLED = False
 TELNETCONSOLE_ENABLED = False
 
 DOWNLOADER_MIDDLEWARES = {
+    "numbo.middlewares.RobotsTimeoutMiddleware": 90,
     "numbo.middlewares.RotateUserAgentMiddleware": 400,
 }
 ITEM_PIPELINES = {
