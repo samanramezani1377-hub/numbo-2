@@ -26,6 +26,18 @@ class ContactSpider(scrapy.Spider):
                        ".rar", ".mp4", ".mp3", ".css", ".js", ".woff", ".woff2")
     TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
                        "gclid", "fbclid", "mc_cid", "mc_eid"}
+    EXPLICIT_URL_RE = re.compile(r"https?://[^\s<>]+", re.I)
+    RESOURCE_SELECTORS = (
+        ("script[src]::attr(src)", "script"),
+        ("img[src]::attr(src)", "image"),
+        ("iframe[src]::attr(src)", "iframe"),
+        ("frame[src]::attr(src)", "frame"),
+        ("video[src]::attr(src)", "video"),
+        ("audio[src]::attr(src)", "audio"),
+        ("source[src]::attr(src)", "source"),
+        ("object[data]::attr(data)", "object"),
+        ("form[action]::attr(action)", "form"),
+    )
 
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
         page_budget_arg = kwargs.pop("page_budget", None)
@@ -111,37 +123,139 @@ class ContactSpider(scrapy.Spider):
             return True
         return bool(not self.allowed_tlds or any(domain.endswith(tld) for tld in self.allowed_tlds))
 
+    def _add_discovery(self, response, discovered, seen, href, link_type, crawl_hint=True):
+        """Normalize and append one discovery edge without changing crawl semantics."""
+        if not href:
+            return
+        href = str(href).strip()
+        if not href or href.startswith(("#", "javascript:", "data:", "blob:", "mailto:", "tel:")):
+            return
+        href = href.strip(" \t\r\n.,;:!?)]}'\"")
+        if not href:
+            return
+        full = self._canonical_url(urljoin(response.url, href))
+        parsed = urlparse(full)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return
+        if full in seen:
+            return
+        seen.add(full)
+        source_domain = self._site_key(response.url)
+        target_domain = self._site_key(full)
+        allowed = self.is_allowed_domain(target_domain)
+        crawlable = bool(
+            crawl_hint and allowed
+            and not parsed.path.lower().endswith(self.SKIP_EXTENSIONS)
+            and not is_blocked_lead_domain(target_domain)
+            and not self._is_non_content_external(full)
+        )
+        discovered.append((
+            response.url, full, target_domain,
+            target_domain != source_domain, crawlable, link_type,
+        ))
+
+    def _extract_explicit_urls(self, text):
+        """Find explicit HTTP(S) URLs while filtering obvious schema/documentation noise."""
+        if not text:
+            return []
+        blocked_hosts = {
+            "schema.org", "www.w3.org", "w3.org", "json-schema.org",
+            "purl.org", "xmlns.com", "ogp.me",
+        }
+        found = []
+        seen = set()
+        for match in self.EXPLICIT_URL_RE.findall(text):
+            value = match.strip(" \t\r\n.,;:!?)]}'\"")
+            try:
+                parsed = urlparse(value)
+            except ValueError:
+                continue
+            host = (parsed.hostname or "").lower().removeprefix("www.")
+            if not host or host in blocked_hosts:
+                continue
+            full = self._canonical_url(value)
+            if full not in seen:
+                seen.add(full)
+                found.append(full)
+        return found
+
     def _links(self, response):
         seen = set()
         discovered = []
-        source_domain = self._site_key(response.url)
-        hrefs = list(response.css("a::attr(href)").getall())
-        hrefs.extend(response.css('link[rel~="canonical"]::attr(href)').getall())
-        hrefs.extend(response.css('link[rel~="alternate"][hreflang]::attr(href)').getall())
-        for href in hrefs:
-            full = self._canonical_url(urljoin(response.url, href))
-            parsed = urlparse(full)
-            if parsed.scheme not in ("http", "https"):
+
+        for href in response.css("a::attr(href)").getall():
+            self._add_discovery(response, discovered, seen, href, "anchor", True)
+        for href in response.css('link[rel~="canonical"]::attr(href)').getall():
+            self._add_discovery(response, discovered, seen, href, "canonical", True)
+        for href in response.css('link[rel~="alternate"][hreflang]::attr(href)').getall():
+            self._add_discovery(response, discovered, seen, href, "hreflang", True)
+
+        for selector, link_type in self.RESOURCE_SELECTORS:
+            for href in response.css(selector).getall():
+                self._add_discovery(response, discovered, seen, href, link_type, False)
+
+        for value in response.css("[srcset]::attr(srcset)").getall():
+            for candidate in value.split(","):
+                href = candidate.strip().split(" ", 1)[0]
+                self._add_discovery(response, discovered, seen, href, "srcset", False)
+
+        for value in response.css('meta[http-equiv]::attr(content)').getall():
+            if re.match(r"^\s*\d+\s*;", value or ""):
+                match = re.search(r";\s*url\s*=\s*(.+)$", value, flags=re.I)
+                if match:
+                    self._add_discovery(response, discovered, seen, match.group(1), "meta_refresh", True)
+
+        for raw_json in response.css('script[type="application/ld+json"]::text').getall():
+            try:
+                data = json.loads(raw_json)
+            except (TypeError, ValueError, json.JSONDecodeError):
                 continue
-            if parsed.path.lower().endswith(self.SKIP_EXTENSIONS):
-                continue
-            if full in seen:
-                continue
-            seen.add(full)
-            target_domain = self._site_key(full)
-            discovered.append((
-                response.url,
-                full,
-                target_domain,
-                target_domain != source_domain,
-                self.is_allowed_domain(target_domain),
-            ))
-        # Persist the complete discovery set before scheduling any requests.
-        # One transaction per page replaces one transaction per link without
-        # changing which links are recorded or crawled.
+            stack = [data]
+            while stack:
+                node = stack.pop()
+                if isinstance(node, list):
+                    stack.extend(node)
+                    continue
+                if isinstance(node, str):
+                    for href in self._extract_explicit_urls(node):
+                        self._add_discovery(response, discovered, seen, href, "jsonld", True)
+                    continue
+                if not isinstance(node, dict):
+                    continue
+                for key, value in node.items():
+                    if isinstance(value, str) and (
+                        key in {"url", "@id", "sameAs", "mainEntityOfPage", "image", "logo"}
+                        or value.startswith(("http://", "https://"))
+                    ):
+                        for href in self._extract_explicit_urls(value):
+                            self._add_discovery(response, discovered, seen, href, "jsonld", True)
+                    if isinstance(value, (dict, list)):
+                        stack.append(value)
+
+        for href in self._extract_explicit_urls(response.text or ""):
+            self._add_discovery(response, discovered, seen, href, "text_or_script", True)
+
+        redirect_urls = list(response.request.meta.get("redirect_urls") or [])
+        chain = [self._canonical_url(response.request.url)] + [
+            self._canonical_url(value) for value in redirect_urls
+        ] + [self._canonical_url(response.url)]
+        for source, target in zip(chain, chain[1:]):
+            if source != target:
+                source_domain = self._site_key(source)
+                target_domain = self._site_key(target)
+                if target_domain:
+                    allowed = self.is_allowed_domain(target_domain)
+                    discovered.append((
+                        source, target, target_domain,
+                        target_domain != source_domain,
+                        bool(allowed and not target.lower().endswith(self.SKIP_EXTENSIONS)),
+                        "redirect",
+                    ))
+
         self.frontier.record_discovered_links(discovered)
-        for _, full, _, _, _ in discovered:
-            yield full
+        for _, full, _, _, crawlable, _ in discovered:
+            if crawlable:
+                yield full
 
     def _url_priority(self, url):
         """Prioritize useful content paths without excluding any discovered URL."""
