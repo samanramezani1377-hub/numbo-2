@@ -21,7 +21,7 @@ class ContactSpider(scrapy.Spider):
     name = "contact"
     custom_settings = {"DEPTH_LIMIT": 0, "NUMBO_PAGE_BUDGET": 20}
 
-    IMPORTANT_PATHS = ("contact", "contact-us", "about", "about-us", "تماس", "درباره", "tamas")
+    IMPORTANT_PATHS = ("contact", "contact-us", "about", "about-us", "support", "help", "service", "services", "product", "products", "shop", "store", "catalog", "category", "تماس", "درباره", "خدمات", "محصول", "فروشگاه", "tamas")
     SKIP_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
                        ".rar", ".mp4", ".mp3", ".css", ".js", ".woff", ".woff2")
     TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -142,6 +142,21 @@ class ContactSpider(scrapy.Spider):
         self.frontier.record_discovered_links(discovered)
         for _, full, _, _, _ in discovered:
             yield full
+
+    def _url_priority(self, url):
+        """Prioritize useful content paths without excluding any discovered URL."""
+        path = urlparse(url).path.lower().strip("/")
+        if not path:
+            return 5
+        if any(token in path for token in ("contact", "contact-us", "تماس", "tamas")):
+            return 30
+        if any(token in path for token in ("about", "about-us", "درباره")):
+            return 28
+        if any(token in path for token in ("service", "services", "support", "help", "خدمات")):
+            return 24
+        if any(token in path for token in ("product", "products", "shop", "store", "catalog", "category", "محصول", "فروشگاه")):
+            return 20
+        return 5
 
     def _is_non_content_external(self, url):
         parsed = urlparse(url)
@@ -422,7 +437,7 @@ class ContactSpider(scrapy.Spider):
 
         for full in self._links(response):
             path = urlparse(full).path.lower()
-            priority = 20 if any(k in path for k in self.IMPORTANT_PATHS) else 0
+            priority = self._url_priority(full)
             target_domain = self._site_key(full)
             # A discovered link becomes crawlable when its target TLD is
             # allowed by the current configuration, even when it belongs
