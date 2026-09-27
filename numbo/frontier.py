@@ -157,6 +157,17 @@ class CrawlHistory:
             (url,),
         ))
 
+    def reset_failed_for_new_cycle(self):
+        """Make URLs failed in an earlier cycle eligible for this cycle.
+
+        Failed URLs remain durable for diagnostics, but their crawl reservation
+        is removed at cycle start so the normal frontier can schedule them
+        again. Failures from the current cycle are not retried immediately.
+        """
+        self._write(lambda: self.conn.execute(
+            "DELETE FROM crawl_urls WHERE status = 'failed'"
+        ))
+
     def queue_layered_url(self, seed_url, url, depth, source_url=None):
         """Persist a URL in the optional per-seed BFS frontier."""
         seed_url = str(seed_url)
