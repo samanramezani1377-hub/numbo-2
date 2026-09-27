@@ -83,6 +83,8 @@ class ContactSpider(scrapy.Spider):
 
     def start_requests(self):
         for seed in self.start_urls:
+            if self.layered_crawl:
+                self.frontier.queue_layered_url(seed, seed, 0, source_url=None)
             request = self._request_page(seed, priority=50, meta={"numbo_source": "seed", "numbo_seed": seed, "numbo_depth": 0}, seed=True, crawl_depth=0, crawl_seed=seed)
             if request:
                 yield request
