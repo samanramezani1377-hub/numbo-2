@@ -3,6 +3,7 @@ import os
 import sys
 import signal
 import logging
+import time
 
 os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "numbo.settings")
 
@@ -16,6 +17,7 @@ install_reactor("twisted.internet.asyncioreactor.AsyncioSelectorReactor")
 from scrapy.crawler import CrawlerRunner
 from scrapy.utils.project import get_project_settings
 from twisted.internet import reactor, defer
+from twisted.internet.threads import deferToThread
 from twisted.internet.task import deferLater
 
 from numbo.config import load as load_config
@@ -34,6 +36,31 @@ cfg = load_config()
 CYCLE_DELAY = int(cfg.get("cycle_delay") or 300)
 
 running = True
+_last_config_mtime = None
+
+
+def _config_mtime():
+    try:
+        return os.path.getmtime(os.path.join(os.path.dirname(__file__), "config.json"))
+    except OSError:
+        return None
+
+
+def _sleep_until_next_cycle(delay):
+    global _last_config_mtime
+    started = time.monotonic()
+    _last_config_mtime = _config_mtime()
+    while running:
+        elapsed = time.monotonic() - started
+        if elapsed >= delay:
+            return False
+        time.sleep(min(1.0, delay - elapsed))
+        current = _config_mtime()
+        if current != _last_config_mtime:
+            logger.info("Configuration changed during cycle delay; starting next cycle now.")
+            _last_config_mtime = current
+            return True
+    return False
 
 
 def handle_signal(signum, frame):
@@ -65,7 +92,10 @@ def crawl_cycle(runner):
             break
 
         logger.info("Sleeping %d seconds before next cycle...", CYCLE_DELAY)
-        yield deferLater(reactor, CYCLE_DELAY, lambda: None)
+        yield deferLater(reactor, 0.1, lambda: None)
+        changed = yield deferToThread(_sleep_until_next_cycle, CYCLE_DELAY)
+        if changed:
+            continue
 
     logger.info("Runner stopped.")
 
