@@ -29,7 +29,7 @@ def test_failed_url_can_be_retried(tmp_path):
     history.close()
 
 
-def test_next_crawl_batch_retries_failed_urls_after_successful_urls(tmp_path):
+def test_failed_url_waits_for_next_cycle_before_retry(tmp_path):
     db = tmp_path / "numbo.db"
     history = CrawlHistory(db)
     history.record_discovered_link(
@@ -43,10 +43,10 @@ def test_next_crawl_batch_retries_failed_urls_after_successful_urls(tmp_path):
 
     assert history.next_crawl_batch("seed.ir", limit=20) == [
         "https://seed.ir/new",
-        "https://seed.ir/failed",
     ]
-    history.reserve("https://seed.ir/new", "seed.ir")
+    history.reset_failed_for_new_cycle()
     assert history.next_crawl_batch("seed.ir", limit=20) == [
+        "https://seed.ir/new",
         "https://seed.ir/failed",
     ]
     history.close()
