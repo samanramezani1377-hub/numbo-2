@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import threading
+import time
 from datetime import datetime
 
 
@@ -10,6 +12,7 @@ class CrawlHistory:
         self.db_path = os.fspath(db_path)
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, timeout=30)
+        self.write_lock = threading.RLock()
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
@@ -54,16 +57,29 @@ class CrawlHistory:
         ).fetchone()
         return row is not None
 
+    def _write(self, operation):
+        """Serialize crawler writes and retry transient SQLite locks."""
+        with self.write_lock:
+            for attempt in range(6):
+                try:
+                    result = operation()
+                    self.conn.commit()
+                    return result
+                except sqlite3.OperationalError as exc:
+                    if "locked" not in str(exc).lower() or attempt == 5:
+                        raise
+                    self.conn.rollback()
+                    time.sleep(0.10 * (2 ** attempt))
+
     def reserve(self, url, domain, source_url=None):
         """Reserve a URL; already crawled/queued URLs are never scheduled twice."""
         now = datetime.utcnow().isoformat()
         try:
-            self.conn.execute(
+            self._write(lambda: self.conn.execute(
                 "INSERT INTO crawl_urls (url, domain, status, source_url, first_seen) "
                 "VALUES (?, ?, 'queued', ?, ?)",
                 (url, domain, source_url, now),
-            )
-            self.conn.commit()
+            ))
             return True
         except sqlite3.IntegrityError:
             row = self.conn.execute(
@@ -80,7 +96,7 @@ class CrawlHistory:
         deduplication rules for discovered/internal/external links.
         """
         now = datetime.utcnow().isoformat()
-        self.conn.execute(
+        self._write(lambda: self.conn.execute(
             """INSERT INTO crawl_urls
                (url, domain, status, source_url, first_seen, crawled_at)
                VALUES (?, ?, 'queued', ?, ?, NULL)
@@ -91,46 +107,32 @@ class CrawlHistory:
                    first_seen = excluded.first_seen,
                    crawled_at = NULL""",
             (url, domain, source_url, now),
-        )
-        self.conn.commit()
+        ))
         return True
 
     def mark_crawled(self, url):
-        self.conn.execute(
+        self._write(lambda: self.conn.execute(
             "UPDATE crawl_urls SET status = 'crawled', crawled_at = ? WHERE url = ?",
             (datetime.utcnow().isoformat(), url),
-        )
-        self.conn.commit()
+        ))
 
     def mark_failed(self, url):
-        self.conn.execute(
+        self._write(lambda: self.conn.execute(
             "UPDATE crawl_urls SET status = 'failed' WHERE url = ?",
             (url,),
-        )
-        self.conn.commit()
+        ))
 
     def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
-        # Discovery happens frequently; keep a short retry loop because the
-        # crawler and the UI may touch the same SQLite database concurrently.
         values = (
             source_url, target_url, target_domain, int(external), int(crawlable),
             datetime.utcnow().isoformat(),
         )
-        for attempt in range(6):
-            try:
-                self.conn.execute(
-                    """INSERT OR IGNORE INTO discovered_links
-                       (source_url, target_url, target_domain, external, crawlable, first_seen)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    values,
-                )
-                self.conn.commit()
-                return
-            except sqlite3.OperationalError as exc:
-                if "locked" not in str(exc).lower() or attempt == 5:
-                    raise
-                import time
-                time.sleep(0.25 * (2 ** attempt))
+        self._write(lambda: self.conn.execute(
+            """INSERT OR IGNORE INTO discovered_links
+               (source_url, target_url, target_domain, external, crawlable, first_seen)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            values,
+        ))
 
     def list_discovered_links(self, query=None, page=1, per_page=50, crawlable=None):
         page = max(int(page), 1)
