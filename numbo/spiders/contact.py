@@ -647,6 +647,11 @@ class ContactSpider(scrapy.Spider):
             # an allowed external site can actually be fetched.
             if target_domain not in self.allowed_domains:
                 self.allowed_domains.append(target_domain)
+            # In layered mode, only depth-0 seed pages open their
+            # direct children immediately. Every deeper page only records its
+            # children; the idle scheduler opens that next layer later.
+            if self.layered_crawl and parent_depth > 0:
+                continue
             request = self._request_page(
                 full,
                 priority=priority,
