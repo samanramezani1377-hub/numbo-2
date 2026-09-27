@@ -8,7 +8,7 @@ from numbo.utils.tech import format_technologies
 from numbo.qualification import qualify_record
 
 class ValidationPipeline:
-    def process_item(self, item, spider):
+    def process_item(self, item):
         a = ItemAdapter(item)
         phones = a.get("phones") or []
         emails = a.get("emails") or []
@@ -58,9 +58,23 @@ class SQLitePipeline:
         self.db_path = os.path.join("data", "numbo.db")
         os.makedirs("data", exist_ok=True)
         self.conn = None
+        self._owns_connection = False
+        self.logger = None
 
     def open_spider(self, spider):
-        self.conn = sqlite3.connect(self.db_path, timeout=30)
+        # The spider's CrawlHistory already owns the SQLite connection used for
+        # crawl frontier/discovery writes. Reuse that connection instead of
+        # opening a second writer in the same process. Two concurrent SQLite
+        # writers were the source of intermittent "database is locked" stalls.
+        frontier = getattr(spider, "frontier", None)
+        if frontier is not None and getattr(frontier, "conn", None) is not None:
+            self.conn = frontier.conn
+            self._owns_connection = False
+        else:
+            self.conn = sqlite3.connect(self.db_path, timeout=30)
+            self._owns_connection = True
+        self.logger = getattr(spider, "logger", None)
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
@@ -93,12 +107,14 @@ class SQLitePipeline:
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_crawled ON contacts(crawled_at)")
         self.conn.commit()
 
-    def close_spider(self, spider):
+    def close_spider(self):
         if self.conn:
             self.conn.commit()
-            self.conn.close()
+            if self._owns_connection:
+                self.conn.close()
+            self.conn = None
 
-    def process_item(self, item, spider):
+    def process_item(self, item):
         a = ItemAdapter(item)
         values = (
             a.get("source_url"), a.get("domain"), a.get("title"),
@@ -122,7 +138,7 @@ class SQLitePipeline:
             # The UI can export while the crawler is writing. Retry transient
             # SQLite locks instead of dropping a valid lead.
             if "locked" not in str(exc).lower():
-                spider.logger.error("DB error: %s", exc)
+                (self.logger or __import__("logging").getLogger(__name__)).error("DB error: %s", exc)
                 raise
             import time
             for attempt in range(6):
@@ -138,9 +154,9 @@ class SQLitePipeline:
                     break
                 except sqlite3.OperationalError as retry_exc:
                     if "locked" not in str(retry_exc).lower() or attempt == 5:
-                        spider.logger.error("DB error after lock retries: %s", retry_exc)
+                        (self.logger or __import__("logging").getLogger(__name__)).error("DB error after lock retries: %s", retry_exc)
                         raise
         except sqlite3.Error as exc:
-            spider.logger.error("DB error: %s", exc)
+            (self.logger or __import__("logging").getLogger(__name__)).error("DB error: %s", exc)
             raise
         return item
