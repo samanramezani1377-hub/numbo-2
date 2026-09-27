@@ -354,27 +354,48 @@ class ContactSpider(scrapy.Spider):
         return spider
 
     def spider_idle(self, spider):
-        """When the current frontier drains, open the next 20-page batch per domain."""
+        """Open the next batch; layered mode advances one BFS depth at a time."""
         scheduled = 0
+        if self.layered_crawl:
+            for seed in self.start_urls:
+                pending = self.frontier.next_layered_batch(seed, limit=self.page_budget)
+                if not pending:
+                    continue
+                domain = self._site_key(seed)
+                state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
+                state["batch_count"] = 0
+                batch_scheduled = 0
+                depth = pending[0][1]
+                for url, url_depth in pending:
+                    request = self._request_page(
+                        url, priority=10,
+                        meta={"numbo_source": "layered_batch"},
+                        crawl_depth=url_depth, crawl_seed=seed,
+                    )
+                    if request:
+                        batch_scheduled += 1
+                        engine_crawl = getattr(self.crawler.engine, "crawl", None)
+                        if engine_crawl:
+                            engine_crawl(request)
+                if batch_scheduled:
+                    scheduled += batch_scheduled
+                    self.logger.info(
+                        "Layered crawl %s: depth=%d batch=%d",
+                        seed, depth, batch_scheduled,
+                    )
+            if scheduled:
+                raise DontCloseSpider()
+            return
+
         for domain in sorted(self.site_pages):
             state = self.site_pages[domain]
-            pending = self.frontier.next_crawl_batch(
-                domain,
-                limit=self.page_budget,
-            )
+            pending = self.frontier.next_crawl_batch(domain, limit=self.page_budget)
             if not pending:
                 continue
-
-            # The previous batch is complete. Start the next batch without
-            # requiring a new runner cycle or the global CYCLE_DELAY.
             state["batch_count"] = 0
             batch_scheduled = 0
             for url in pending:
-                request = self._request_page(
-                    url,
-                    priority=10,
-                    meta={"numbo_source": "next_batch"},
-                )
+                request = self._request_page(url, priority=10, meta={"numbo_source": "next_batch"})
                 if request:
                     batch_scheduled += 1
                     yield_request = getattr(self.crawler.engine, "crawl", None)
@@ -386,7 +407,6 @@ class ContactSpider(scrapy.Spider):
                     "Starting next crawl batch for %s: %d pages (batch size=%d)",
                     domain, batch_scheduled, self.page_budget,
                 )
-
         if scheduled:
             raise DontCloseSpider()
 
