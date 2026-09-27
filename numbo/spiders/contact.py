@@ -264,33 +264,58 @@ class ContactSpider(scrapy.Spider):
     def parse_aux(self, response):
         ctype = (response.headers.get("Content-Type") or b"").decode("latin1").lower()
         body = response.text or ""
-        if response.url.lower().endswith((".xml", "sitemap.xml", "sitemap_index.xml")) or "xml" in ctype:
-            for loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", body, flags=re.I | re.S):
-                loc = self._canonical_url(loc.strip())
+
+        # robots.txt can advertise multiple sitemap sources.
+        if response.url.lower().endswith("/robots.txt"):
+            for raw_line in body.splitlines():
+                match = re.match(r"^\s*sitemap\s*:\s*(\S+)\s*$", raw_line, flags=re.I)
+                if not match:
+                    continue
+                loc = self._canonical_url(match.group(1))
                 parsed = urlparse(loc)
-                if self.is_allowed_domain(parsed.hostname or ""):
-                    if loc.lower().endswith(".xml"):
+                target_domain = self._site_key(loc)
+                if parsed.scheme not in ("http", "https") or not target_domain:
+                    continue
+                allowed = self.is_allowed_domain(target_domain)
+                self.frontier.record_discovered_link(
+                    response.url, loc, target_domain,
+                    target_domain != self._site_key(response.url),
+                    allowed, link_type="robots_sitemap"
+                )
+                if allowed:
+                    yield scrapy.Request(
+                        loc, callback=self.parse_aux, priority=35,
+                        meta={"numbo_site": self._site_key(loc), "numbo_aux": True}
+                    )
+            return
+
+        if response.url.lower().endswith((".xml", "sitemap.xml", "sitemap_index.xml")) or "xml" in ctype:
+            for raw_loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", body, flags=re.I | re.S):
+                loc = self._canonical_url(re.sub(r"<[^>]+>", "", raw_loc).strip())
+                parsed = urlparse(loc)
+                target_domain = self._site_key(loc)
+                if parsed.scheme not in ("http", "https") or not target_domain:
+                    continue
+                allowed = self.is_allowed_domain(target_domain)
+                is_sitemap = loc.lower().endswith((".xml", ".xml.gz")) or "sitemap" in parsed.path.lower()
+                self.frontier.record_discovered_link(
+                    response.url, loc, target_domain,
+                    target_domain != self._site_key(response.url),
+                    allowed, link_type="sitemap"
+                )
+                if is_sitemap:
+                    if allowed:
                         yield scrapy.Request(
                             loc, callback=self.parse_aux, priority=30,
                             meta={"numbo_site": self._site_key(loc), "numbo_aux": True}
                         )
-                    else:
-                        # Persist sitemap URLs in the same frontier used by
-                        # normal discovered links. This lets batches continue
-                        # through sitemap URLs beyond the first 20 pages.
-                        target_domain = self._site_key(loc)
-                        self.frontier.record_discovered_link(
-                            response.url,
-                            loc,
-                            target_domain,
-                            target_domain != self._site_key(response.url),
-                            True,
-                        )
-                        request = self._request_page(
-                            loc, priority=15, meta={"numbo_source": "sitemap"}
-                        )
-                        if request:
-                            yield request
+                    continue
+                if allowed:
+                    request = self._request_page(
+                        loc, priority=15, meta={"numbo_source": "sitemap"}
+                    )
+                    if request:
+                        yield request
 
     def request_failed(self, failure):
         request = failure.request
