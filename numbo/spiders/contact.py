@@ -38,6 +38,7 @@ class ContactSpider(scrapy.Spider):
         ("object[data]::attr(data)", "object"),
         ("form[action]::attr(action)", "form"),
     )
+    RESOURCE_LINK_TYPES = {"script", "image", "iframe", "frame", "video", "audio", "source", "object"}
 
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
         page_budget_arg = kwargs.pop("page_budget", None)
