@@ -43,10 +43,12 @@ class ContactSpider(scrapy.Spider):
     def __init__(self, seeds_file="seeds.txt", *args, **kwargs):
         page_budget_arg = kwargs.pop("page_budget", None)
         frontier_db = kwargs.pop("frontier_db", os.path.join("data", "numbo.db"))
+        layered_arg = kwargs.pop("layered_crawl", False)
         super().__init__(*args, **kwargs)
         self.seeds_file = seeds_file
         default_budget = self.custom_settings.get("NUMBO_PAGE_BUDGET", 20)
         self.page_budget = max(1, int(page_budget_arg if page_budget_arg is not None else default_budget))
+        self.layered_crawl = str(layered_arg).lower() in {"1", "true", "yes", "on"}
         self.start_urls, self.allowed_domains = [], []
         self.seed_domains = set()
         self.site_pages = {}
@@ -81,7 +83,7 @@ class ContactSpider(scrapy.Spider):
 
     def start_requests(self):
         for seed in self.start_urls:
-            request = self._request_page(seed, priority=50, meta={"numbo_source": "seed"}, seed=True)
+            request = self._request_page(seed, priority=50, meta={"numbo_source": "seed", "numbo_seed": seed, "numbo_depth": 0}, seed=True, crawl_depth=0, crawl_seed=seed)
             if request:
                 yield request
             parsed = urlparse(seed)
@@ -319,18 +321,24 @@ class ContactSpider(scrapy.Spider):
         state["scheduled"].add(url)
         return True
 
-    def _request_page(self, url, priority=0, meta=None, seed=False):
+    def _request_page(self, url, priority=0, meta=None, seed=False, crawl_depth=None, crawl_seed=None):
         target_domain = self._site_key(url)
         if self.is_allowed_domain(target_domain) and target_domain not in self.allowed_domains:
             # Keep Scrapy's OffsiteMiddleware in sync for configuration-allowed
             # domains discovered after the spider starts.
             self.allowed_domains.append(target_domain)
         if not self._reserve_page(url, seed=seed):
+            if self.layered_crawl and crawl_seed and self.frontier.was_crawled(url):
+                self.frontier.mark_layered_crawled(url)
             return None
         state = self.site_pages[self._site_key(url)]
         state["batch_count"] += 1
         request_meta = dict(meta or {})
         request_meta["numbo_site"] = self._site_key(url)
+        if self.layered_crawl and crawl_seed:
+            request_meta["numbo_seed"] = crawl_seed
+            request_meta["numbo_depth"] = max(int(crawl_depth or 0), 0)
+            self.frontier.mark_layered_queued(crawl_seed, url)
         return scrapy.Request(
             url,
             callback=self.parse,
