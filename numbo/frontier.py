@@ -234,7 +234,7 @@ class CrawlHistory:
         where = "WHERE " + " AND ".join(conditions)
         total = self.conn.execute(f"SELECT COUNT(*) FROM discovered_links {where}", params).fetchone()[0]
         rows = self.conn.execute(
-            f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
+            f"""SELECT source_url, target_url, target_domain, crawlable, link_type, first_seen
                 FROM discovered_links {where} ORDER BY first_seen DESC LIMIT ? OFFSET ?""",
             params + [per_page, (page - 1) * per_page],
         ).fetchall()
@@ -255,7 +255,7 @@ class CrawlHistory:
         ).fetchall()
         with open(path, "w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
-            writer.writerow(["source_url", "target_url", "target_domain", "crawlable", "first_seen"])
+            writer.writerow(["source_url", "target_url", "target_domain", "crawlable", "link_type", "first_seen"])
             writer.writerows(rows)
         return len(rows)
 
