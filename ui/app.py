@@ -58,27 +58,63 @@ def is_crawler_running() -> bool:
         return False
 
 
+def group_contact_rows(raw_rows):
+    """Return the site-level dataset used by the Results page."""
+    qualified = [dict(raw) for raw in raw_rows if qualify_record(dict(raw))]
+    grouped = {}
+    for raw in qualified:
+        domain = (raw.get("domain") or "").strip().lower()
+        if not domain:
+            continue
+        row = grouped.setdefault(domain, {
+            "domain": domain,
+            "source_url": raw.get("source_url") or "",
+            "phones": [], "emails": [],
+            "city": raw.get("city") or "",
+            "category": raw.get("category") or "",
+            "technologies": [],
+            "crawled_at": raw.get("crawled_at") or "",
+        })
+        if not row["source_url"]:
+            row["source_url"] = raw.get("source_url") or ""
+        for value in (raw.get("phones") or "").split(","):
+            value = value.strip()
+            if value and value not in row["phones"]:
+                row["phones"].append(value)
+        for value in (raw.get("emails") or "").split(","):
+            value = value.strip()
+            if value and value not in row["emails"]:
+                row["emails"].append(value)
+        for value in (raw.get("technologies") or "").split(";"):
+            value = value.strip()
+            if value and value not in row["technologies"]:
+                row["technologies"].append(value)
+        if raw.get("city"):
+            row["city"] = raw["city"]
+        if raw.get("category"):
+            row["category"] = raw["category"]
+        if (raw.get("crawled_at") or "") > row["crawled_at"]:
+            row["crawled_at"] = raw["crawled_at"]
+    rows = list(grouped.values())
+    for row in rows:
+        row["mobile_phones"], row["landline_phones"] = split_phones(row["phones"])
+    return rows
+
+
 def get_stats():
     empty = {"total": 0, "phones": 0, "emails": 0, "wordpress": 0, "woocommerce": 0, "cities": 0}
     conn = get_db()
     if not conn:
         return empty
     try:
-        raw = conn.execute("SELECT * FROM contacts").fetchall()
-        qualified = [dict(row) for row in raw if qualify_record(dict(row))]
-        total = len(qualified)
-        phones = sum(bool(r.get("phones")) for r in qualified)
-        emails = sum(bool(r.get("emails")) for r in qualified)
-        wordpress = sum("WordPress" in (r.get("technologies") or "") for r in qualified)
-        woocommerce = sum("WooCommerce" in (r.get("technologies") or "") for r in qualified)
-        cities = len({r.get("city") for r in qualified if r.get("city")})
+        rows = group_contact_rows(conn.execute("SELECT * FROM contacts").fetchall())
         return {
-            "total": total,
-            "phones": phones,
-            "emails": emails,
-            "wordpress": wordpress,
-            "woocommerce": woocommerce,
-            "cities": cities,
+            "total": len(rows),
+            "phones": sum(bool(r.get("phones")) for r in rows),
+            "emails": sum(bool(r.get("emails")) for r in rows),
+            "wordpress": sum("WordPress" in r.get("technologies", []) for r in rows),
+            "woocommerce": sum("WooCommerce" in r.get("technologies", []) for r in rows),
+            "cities": len({r.get("city") for r in rows if r.get("city")}),
         }
     except Exception:
         return empty
@@ -241,47 +277,8 @@ async def list_contacts(
     ).fetchall()
     conn.close()
 
-    # Present only qualified leads, one row per domain.
-    raw_rows = [dict(raw) for raw in raw_rows if qualify_record(dict(raw))]
-    grouped = {}
-    for raw in raw_rows:
-        domain = (raw["domain"] or "").strip().lower()
-        if not domain:
-            continue
-        row = grouped.setdefault(domain, {
-            "domain": domain,
-            "source_url": raw["source_url"] or "",
-            "phones": [],
-            "emails": [],
-            "city": raw["city"] or "",
-            "category": raw["category"] or "",
-            "technologies": [],
-            "crawled_at": raw["crawled_at"] or "",
-        })
-        if not row["source_url"]:
-            row["source_url"] = raw["source_url"] or ""
-        for value in (raw["phones"] or "").split(","):
-            value = value.strip()
-            if value and value not in row["phones"]:
-                row["phones"].append(value)
-        for value in (raw["emails"] or "").split(","):
-            value = value.strip()
-            if value and value not in row["emails"]:
-                row["emails"].append(value)
-        for value in (raw["technologies"] or "").split(";"):
-            value = value.strip()
-            if value and value not in row["technologies"]:
-                row["technologies"].append(value)
-        if raw["city"]:
-            row["city"] = raw["city"]
-        if raw["category"]:
-            row["category"] = raw["category"]
-        if (raw["crawled_at"] or "") > row["crawled_at"]:
-            row["crawled_at"] = raw["crawled_at"]
-
-    rows = list(grouped.values())
-    for row in rows:
-        row["mobile_phones"], row["landline_phones"] = split_phones(row["phones"])
+    # Use the exact same site-level aggregation as Dashboard.
+    rows = group_contact_rows(raw_rows)
 
     total = len(rows)
     rows = rows[offset:offset + per_page]
