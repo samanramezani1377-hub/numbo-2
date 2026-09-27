@@ -10,6 +10,7 @@ DEFAULTS = {
     "secret": "",
     "allowed_tlds": [".ir"],
     "cycle_delay": 300,
+    "layered_crawl": False,
 }
 
 
