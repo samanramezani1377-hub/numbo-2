@@ -28,6 +28,21 @@ class CrawlHistory:
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_crawl_urls_domain ON crawl_urls(domain)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_crawl_urls_status ON crawl_urls(status)")
+        # Optional per-seed BFS frontier. The normal crawler never consults
+        # this table, so legacy/default crawl behavior remains unchanged.
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS layered_frontier (
+                seed_url TEXT NOT NULL,
+                url TEXT NOT NULL,
+                depth INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                source_url TEXT,
+                first_seen TEXT NOT NULL,
+                crawled_at TEXT,
+                PRIMARY KEY (seed_url, url)
+            )
+        """)
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_layered_frontier_seed_depth ON layered_frontier(seed_url, depth, status)")
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS discovered_links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +156,69 @@ class CrawlHistory:
             "UPDATE crawl_urls SET status = 'failed' WHERE url = ?",
             (url,),
         ))
+
+    def queue_layered_url(self, seed_url, url, depth, source_url=None):
+        """Persist a URL in the optional per-seed BFS frontier."""
+        seed_url = str(seed_url)
+        url = str(url)
+        depth = max(int(depth), 0)
+        now = datetime.utcnow().isoformat()
+
+        def write():
+            global_crawled = self.conn.execute(
+                "SELECT 1 FROM crawl_urls WHERE url=? AND status='crawled' LIMIT 1",
+                (url,),
+            ).fetchone()
+            status = "crawled" if global_crawled else "pending"
+            self.conn.execute(
+                """INSERT INTO layered_frontier
+                   (seed_url,url,depth,status,source_url,first_seen,crawled_at)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(seed_url,url) DO UPDATE SET
+                     depth=MIN(layered_frontier.depth, excluded.depth),
+                     source_url=COALESCE(layered_frontier.source_url, excluded.source_url)""",
+                (seed_url, url, depth, status, source_url, now,
+                 now if status == "crawled" else None),
+            )
+        self._write(write)
+
+    def mark_layered_crawled(self, url):
+        self._write(lambda: self.conn.execute(
+            "UPDATE layered_frontier SET status='crawled', crawled_at=? "
+            "WHERE url=? AND status IN ('pending','queued')",
+            (datetime.utcnow().isoformat(), url),
+        ))
+
+    def mark_layered_failed(self, url):
+        self._write(lambda: self.conn.execute(
+            "UPDATE layered_frontier SET status='failed' WHERE url=? AND status='queued'",
+            (url,),
+        ))
+
+    def mark_layered_queued(self, seed_url, url):
+        self._write(lambda: self.conn.execute(
+            "UPDATE layered_frontier SET status='queued' "
+            "WHERE seed_url=? AND url=? AND status='pending'",
+            (seed_url, url),
+        ))
+
+    def next_layered_batch(self, seed_url, limit=20):
+        """Return only the lowest unfinished depth for one seed."""
+        row = self.conn.execute(
+            """SELECT MIN(depth) FROM layered_frontier
+               WHERE seed_url=? AND status IN ('pending','queued')""",
+            (seed_url,),
+        ).fetchone()
+        if not row or row[0] is None:
+            return []
+        depth = int(row[0])
+        rows = self.conn.execute(
+            """SELECT url, depth FROM layered_frontier
+               WHERE seed_url=? AND depth=? AND status='pending'
+               ORDER BY first_seen ASC LIMIT ?""",
+            (seed_url, depth, max(int(limit), 1)),
+        ).fetchall()
+        return [(row[0], int(row[1])) for row in rows]
 
     def record_discovered_links(self, links):
         """Persist typed discovery edges in one transaction."""
