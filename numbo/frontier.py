@@ -153,7 +153,7 @@ class CrawlHistory:
 
     def mark_crawled(self, url):
         self._write(lambda: self.conn.execute(
-            "UPDATE crawl_urls SET status = 'crawled', crawled_at = ? WHERE url = ?",
+            "UPDATE crawl_urls SET status = 'crawled', crawled_at = ?, failure_reason = NULL WHERE url = ?",
             (datetime.utcnow().isoformat(), url),
         ))
 
@@ -467,8 +467,20 @@ class CrawlHistory:
             params.append(int(bool(crawlable)))
         where = "WHERE " + " AND ".join(conditions)
         rows = self.conn.execute(
-            f"""SELECT source_url, target_url, target_domain, crawlable, link_type, first_seen
-                FROM discovered_links {where} ORDER BY first_seen DESC""",
+            f"""SELECT d.source_url, d.target_url, d.target_domain, d.external, d.crawlable,
+                       d.link_type, d.first_seen,
+                       CASE
+                         WHEN d.crawlable = 0 THEN 'NON_CRAWLABLE'
+                         WHEN c.status = 'crawled' THEN 'CRAWLED'
+                         WHEN c.status = 'queued' THEN 'QUEUED'
+                         WHEN c.status = 'failed' AND c.failure_reason LIKE 'robots%' THEN 'ROBOTS_BLOCKED'
+                         WHEN c.status = 'failed' THEN 'FAILED'
+                         WHEN c.status = 'retry_pending' THEN 'RETRY_PENDING'
+                         ELSE 'DISCOVERED'
+                       END
+                FROM discovered_links d
+                LEFT JOIN crawl_urls c ON c.url = d.target_url
+                {where} ORDER BY d.first_seen DESC""",
             params,
         ).fetchall()
         with open(path, "w", encoding="utf-8-sig", newline="") as handle:
