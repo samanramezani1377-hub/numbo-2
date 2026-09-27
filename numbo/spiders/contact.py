@@ -54,6 +54,7 @@ class ContactSpider(scrapy.Spider):
         self.site_pages = {}
         self._batch_no = 1
         self.frontier = CrawlHistory(frontier_db)
+        self._layered_active = set()
         self.allowed_tlds = [t.lower().strip() for t in
                              (load_config().get("allowed_tlds") or []) if str(t).strip()]
         if os.path.exists(seeds_file):
@@ -332,8 +333,18 @@ class ContactSpider(scrapy.Spider):
         if not self._reserve_page(url, seed=seed):
             if self.layered_crawl and crawl_seed:
                 global_status = self.frontier.get_url_status(url)
-                if global_status in {"crawled", "queued"}:
-                    self.frontier.mark_layered_crawled(url)
+                if global_status == "crawled":
+                    expanded = self.frontier.expand_layered_from_history(
+                        crawl_seed, url, max(int(crawl_depth or 0), 0)
+                    )
+                    self.frontier.mark_layered_crawled_for_seed(crawl_seed, url)
+                    if expanded:
+                        self.logger.info(
+                            "Layered history hydrate seed=%s depth=%d url=%s children=%d",
+                            crawl_seed, int(crawl_depth or 0), url, expanded,
+                        )
+                elif global_status == "queued":
+                    self.frontier.mark_layered_crawled_for_seed(crawl_seed, url)
             return None
         state = self.site_pages[self._site_key(url)]
         state["batch_count"] += 1
@@ -343,13 +354,16 @@ class ContactSpider(scrapy.Spider):
             request_meta["numbo_seed"] = crawl_seed
             request_meta["numbo_depth"] = max(int(crawl_depth or 0), 0)
             self.frontier.mark_layered_queued(crawl_seed, url)
-        return scrapy.Request(
+        request = scrapy.Request(
             url,
             callback=self.parse,
             errback=self.request_failed,
             priority=priority,
             meta=request_meta,
         )
+        if self.layered_crawl and crawl_seed:
+            self._layered_active.add((crawl_seed, self._canonical_url(url)))
+        return request
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):
@@ -362,6 +376,11 @@ class ContactSpider(scrapy.Spider):
         scheduled = 0
         if self.layered_crawl:
             for seed in self.start_urls:
+                active = {url for current_seed, url in self._layered_active if current_seed == seed}
+                self.frontier.reconcile_layered_queue(seed, active)
+                hydrated = self.frontier.advance_layered_history(seed)
+                if hydrated:
+                    self.logger.info("Layered history advance %s: hydrated=%d", seed, hydrated)
                 pending = self.frontier.next_layered_batch(seed, limit=self.page_budget)
                 if not pending:
                     continue
@@ -480,6 +499,10 @@ class ContactSpider(scrapy.Spider):
         domain = self._site_key(url)
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         state["scheduled"].discard(url)
+        if self.layered_crawl:
+            for key in list(self._layered_active):
+                if key[1] == url:
+                    self._layered_active.discard(key)
         self.frontier.mark_failed(url)
         if self.layered_crawl:
             self.frontier.mark_layered_failed(url)
@@ -491,6 +514,11 @@ class ContactSpider(scrapy.Spider):
         requested_url = self._canonical_url(response.request.url)
         state["scheduled"].discard(requested_url)
         state["scheduled"].discard(self._canonical_url(response.url))
+        if self.layered_crawl:
+            final_canonical = self._canonical_url(response.url)
+            for key in list(self._layered_active):
+                if key[1] in {requested_url, final_canonical}:
+                    self._layered_active.discard(key)
         state["count"] += 1
         self.frontier.mark_crawled(requested_url)
         if self.layered_crawl:
@@ -631,31 +659,20 @@ class ContactSpider(scrapy.Spider):
             priority = self._url_priority(full)
             target_domain = self._site_key(full)
             child_depth = parent_depth + 1
+            if not self.is_allowed_domain(target_domain):
+                continue
+            if is_blocked_lead_domain(target_domain):
+                continue
+            if self._is_non_content_external(full):
+                continue
+            if path.endswith(self.SKIP_EXTENSIONS):
+                continue
             if self.layered_crawl and parent_seed:
                 self.frontier.queue_layered_url(
                     parent_seed, full, child_depth, source_url=response.url
                 )
-            # A discovered link becomes crawlable when its target TLD is
-            # allowed by the current configuration, even when it belongs
-            # to a different domain. Disallowed links remain discovery-only.
-            if not self.is_allowed_domain(target_domain):
-                continue
-            # Keep known platform/utility destinations in discovery history,
-            # but never spend crawl budget or retry time on them.
-            if is_blocked_lead_domain(target_domain):
-                continue
-            # Keep social/share action URLs in discovery history, but do not
-            # spend crawl budget on endpoints that are not content pages.
-            if self._is_non_content_external(full):
-                continue
-            # Scrapy's OffsiteMiddleware also checks allowed_domains. Add
-            # newly discovered, configuration-allowed domains dynamically so
-            # an allowed external site can actually be fetched.
             if target_domain not in self.allowed_domains:
                 self.allowed_domains.append(target_domain)
-            # In layered mode, only depth-0 seed pages open their
-            # direct children immediately. Every deeper page only records its
-            # children; the idle scheduler opens that next layer later.
             if self.layered_crawl and parent_depth > 0:
                 continue
             request = self._request_page(
