@@ -330,8 +330,10 @@ class ContactSpider(scrapy.Spider):
             # domains discovered after the spider starts.
             self.allowed_domains.append(target_domain)
         if not self._reserve_page(url, seed=seed):
-            if self.layered_crawl and crawl_seed and self.frontier.was_crawled(url):
-                self.frontier.mark_layered_crawled(url)
+            if self.layered_crawl and crawl_seed:
+                global_status = self.frontier.get_url_status(url)
+                if global_status in {"crawled", "queued"}:
+                    self.frontier.mark_layered_crawled(url)
             return None
         state = self.site_pages[self._site_key(url)]
         state["batch_count"] += 1
