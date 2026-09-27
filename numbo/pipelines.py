@@ -29,7 +29,7 @@ class DeduplicationPipeline:
     def __init__(self):
         self.seen_phones, self.seen_emails, self.seen_domains = set(), set(), set()
 
-    def process_item(self, item, spider):
+    def process_item(self, item):
         a = ItemAdapter(item)
         phones = list(dict.fromkeys(a.get("phones") or []))
         emails = list(dict.fromkeys(e.lower() for e in (a.get("emails") or [])))
@@ -74,7 +74,7 @@ class SQLitePipeline:
             self.conn = sqlite3.connect(self.db_path, timeout=30)
             self._owns_connection = True
         self.logger = getattr(spider, "logger", None)
-        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.write_lock = getattr(frontier, "write_lock", None) if frontier is not None else None
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
@@ -126,37 +126,35 @@ class SQLitePipeline:
             float(a.get("quality_score") or 0),
             json.dumps(a.get("evidence") or {}, ensure_ascii=False),
         )
-        try:
-            self.conn.execute("""
-                INSERT OR IGNORE INTO contacts
-                (source_url,domain,title,phones,emails,address,business_name,category,city,
-                 socials,technologies,crawled_at,quality_score,evidence)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, values)
-            self.conn.commit()
-        except sqlite3.OperationalError as exc:
-            # The UI can export while the crawler is writing. Retry transient
-            # SQLite locks instead of dropping a valid lead.
-            if "locked" not in str(exc).lower():
-                (self.logger or __import__("logging").getLogger(__name__)).error("DB error: %s", exc)
-                raise
-            import time
+        statement = """
+            INSERT OR IGNORE INTO contacts
+            (source_url,domain,title,phones,emails,address,business_name,category,city,
+             socials,technologies,crawled_at,quality_score,evidence)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """
+        lock = self.write_lock
+        if lock is None:
+            import threading
+            lock = threading.RLock()
+        with lock:
             for attempt in range(6):
                 try:
-                    time.sleep(0.25 * (2 ** attempt))
-                    self.conn.execute("""
-                        INSERT OR IGNORE INTO contacts
-                        (source_url,domain,title,phones,emails,address,business_name,category,city,
-                         socials,technologies,crawled_at,quality_score,evidence)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, values)
+                    self.conn.execute(statement, values)
                     self.conn.commit()
-                    break
-                except sqlite3.OperationalError as retry_exc:
-                    if "locked" not in str(retry_exc).lower() or attempt == 5:
-                        (self.logger or __import__("logging").getLogger(__name__)).error("DB error after lock retries: %s", retry_exc)
+                    return item
+                except sqlite3.OperationalError as exc:
+                    if "locked" not in str(exc).lower() or attempt == 5:
+                        (self.logger or __import__("logging").getLogger(__name__)).error(
+                            "DB error after lock retries: %s", exc
+                        )
                         raise
-        except sqlite3.Error as exc:
-            (self.logger or __import__("logging").getLogger(__name__)).error("DB error: %s", exc)
-            raise
+                    self.conn.rollback()
+                    import time
+                    time.sleep(0.10 * (2 ** attempt))
+                except sqlite3.Error as exc:
+                    self.conn.rollback()
+                    (self.logger or __import__("logging").getLogger(__name__)).error(
+                        "DB error: %s", exc
+                    )
+                    raise
         return item
