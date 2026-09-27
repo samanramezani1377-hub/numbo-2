@@ -23,7 +23,8 @@ class CrawlHistory:
                 status TEXT NOT NULL DEFAULT 'crawled',
                 source_url TEXT,
                 first_seen TEXT NOT NULL,
-                crawled_at TEXT
+                crawled_at TEXT,
+                failure_reason TEXT
             )
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_crawl_urls_domain ON crawl_urls(domain)")
@@ -63,7 +64,12 @@ class CrawlHistory:
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(discovered_links)").fetchall()}
         if "link_type" not in columns:
             self.conn.execute("ALTER TABLE discovered_links ADD COLUMN link_type TEXT NOT NULL DEFAULT 'anchor'")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_type ON discovered_links(link_type)")
+        crawl_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(crawl_urls)").fetchall()}
+        if "failure_reason" not in crawl_columns:
+            self.conn.execute("ALTER TABLE crawl_urls ADD COLUMN failure_reason TEXT")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_crawl_urls_failure_reason ON crawl_urls(failure_reason)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_crawlable_domain ON discovered_links(crawlable, target_domain)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_source ON discovered_links(source_url)")
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS site_technology_evidence (
                 domain TEXT NOT NULL,
@@ -121,7 +127,7 @@ class CrawlHistory:
                 "SELECT status FROM crawl_urls WHERE url = ?",
                 (url,),
             ).fetchone()
-            return bool(row and row[0] == "failed")
+            return bool(row and row[0] in {"failed", "retry_pending"})
 
     def reserve_seed(self, url, domain, source_url=None):
         """Reserve an explicit seed for the current crawl cycle.
@@ -151,10 +157,10 @@ class CrawlHistory:
             (datetime.utcnow().isoformat(), url),
         ))
 
-    def mark_failed(self, url):
+    def mark_failed(self, url, reason=None):
         self._write(lambda: self.conn.execute(
-            "UPDATE crawl_urls SET status = 'failed' WHERE url = ?",
-            (url,),
+            "UPDATE crawl_urls SET status = 'failed', failure_reason = ? WHERE url = ?",
+            (str(reason or "").strip() or None, url),
         ))
 
     def reset_failed_for_new_cycle(self):
@@ -165,7 +171,7 @@ class CrawlHistory:
         again. Failures from the current cycle are not retried immediately.
         """
         self._write(lambda: self.conn.execute(
-            "DELETE FROM crawl_urls WHERE status = 'failed'"
+            "UPDATE crawl_urls SET status = 'retry_pending' WHERE status = 'failed'"
         ))
 
     def queue_layered_url(self, seed_url, url, depth, source_url=None):
@@ -435,8 +441,19 @@ class CrawlHistory:
         where = "WHERE " + " AND ".join(conditions)
         total = self.conn.execute(f"SELECT COUNT(*) FROM discovered_links {where}", params).fetchone()[0]
         rows = self.conn.execute(
-            f"""SELECT source_url, target_url, target_domain, crawlable, first_seen
-                FROM discovered_links {where} ORDER BY first_seen DESC LIMIT ? OFFSET ?""",
+            f"""SELECT d.source_url, d.target_url, d.target_domain, d.crawlable, d.first_seen,
+                       CASE
+                         WHEN d.crawlable = 0 THEN 'NON_CRAWLABLE'
+                         WHEN c.status = 'crawled' THEN 'CRAWLED'
+                         WHEN c.status = 'queued' THEN 'QUEUED'
+                         WHEN c.status = 'failed' AND c.failure_reason LIKE 'robots%' THEN 'ROBOTS_BLOCKED'
+                         WHEN c.status = 'failed' THEN 'FAILED'
+                         WHEN c.status = 'retry_pending' THEN 'RETRY_PENDING'
+                         ELSE 'DISCOVERED'
+                       END AS crawl_status
+                FROM discovered_links d
+                LEFT JOIN crawl_urls c ON c.url = d.target_url
+                {where} ORDER BY d.first_seen DESC LIMIT ? OFFSET ?""",
             params + [per_page, (page - 1) * per_page],
         ).fetchall()
         return rows, total
@@ -456,9 +473,25 @@ class CrawlHistory:
         ).fetchall()
         with open(path, "w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
-            writer.writerow(["source_url", "target_url", "target_domain", "crawlable", "link_type", "first_seen"])
+            writer.writerow(["source_url", "target_url", "target_domain", "external", "crawlable", "link_type", "first_seen", "crawl_status"])
             writer.writerows(rows)
         return len(rows)
+
+    def crawl_stats(self):
+        """Durable crawler counters from the same SQLite source used by the UI."""
+        stats = {
+            "pages_crawled": 0, "sites_crawled": 0, "urls_discovered": 0,
+            "external_domains": 0, "crawlable_urls": 0, "qualified_leads": 0,
+            "failed_urls": 0, "robots_blocked": 0,
+        }
+        stats["urls_discovered"] = int(self.conn.execute("SELECT COUNT(*) FROM discovered_links").fetchone()[0] or 0)
+        stats["external_domains"] = int(self.conn.execute("SELECT COUNT(DISTINCT target_domain) FROM discovered_links WHERE external=1").fetchone()[0] or 0)
+        stats["crawlable_urls"] = int(self.conn.execute("SELECT COUNT(*) FROM discovered_links WHERE crawlable=1").fetchone()[0] or 0)
+        stats["pages_crawled"] = int(self.conn.execute("SELECT COUNT(*) FROM crawl_urls WHERE status='crawled'").fetchone()[0] or 0)
+        stats["sites_crawled"] = int(self.conn.execute("SELECT COUNT(DISTINCT domain) FROM crawl_urls WHERE status='crawled'").fetchone()[0] or 0)
+        stats["failed_urls"] = int(self.conn.execute("SELECT COUNT(*) FROM crawl_urls WHERE status IN ('failed','retry_pending')").fetchone()[0] or 0)
+        stats["robots_blocked"] = int(self.conn.execute("SELECT COUNT(*) FROM crawl_urls WHERE failure_reason LIKE 'robots%'").fetchone()[0] or 0)
+        return stats
 
 
     def next_crawl_batch(self, domain, limit=20):
@@ -474,7 +507,7 @@ class CrawlHistory:
                LEFT JOIN crawl_urls c ON c.url = d.target_url
                WHERE d.target_domain = ?
                  AND d.crawlable = 1
-                 AND c.url IS NULL
+                 AND (c.url IS NULL OR c.status = 'retry_pending')
                ORDER BY d.first_seen ASC
                LIMIT ?""",
             (domain, max(int(limit), 1)),
