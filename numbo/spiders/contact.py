@@ -3,7 +3,7 @@ import re
 import json
 import scrapy
 from scrapy import signals
-from scrapy.exceptions import DontCloseSpider
+from scrapy.exceptions import DontCloseSpider, IgnoreRequest
 from urllib.parse import urlparse, urljoin, urldefrag, urlunparse, parse_qsl, urlencode
 from datetime import datetime
 from numbo.items import ContactItem
@@ -503,6 +503,19 @@ class ContactSpider(scrapy.Spider):
             for key in list(self._layered_active):
                 if key[1] == url:
                     self._layered_active.discard(key)
+        robots_blocked = failure.check(IgnoreRequest) is not None and "robots.txt" in str(failure.value).lower()
+        if self.layered_crawl and robots_blocked:
+            depth = int(request.meta.get("numbo_depth", 0) or 0)
+            seed = request.meta.get("numbo_seed")
+            hydrated = self.frontier.expand_layered_from_history(seed, url, depth) if seed else 0
+            if seed:
+                self.frontier.mark_layered_crawled_for_seed(seed, url)
+            self.logger.warning(
+                "Layered URL blocked by robots.txt; preserved BFS history seed=%s depth=%d url=%s hydrated=%d",
+                seed, depth, url, hydrated,
+            )
+            self.frontier.mark_failed(url)
+            return
         self.frontier.mark_failed(url)
         if self.layered_crawl:
             self.frontier.mark_layered_failed(url)
