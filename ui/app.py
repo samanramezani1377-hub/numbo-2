@@ -184,6 +184,7 @@ async def dashboard(request: Request):
         "running": is_crawler_running(),
         "seeds": read_seeds(),
         "tlds": tlds,
+        "layered_crawl": bool(cfg.get("layered_crawl", False)),
     })
 
 
@@ -224,6 +225,14 @@ async def stop_crawler():
 @app.post("/seeds")
 async def save_seeds(seeds: str = Form(...)):
     SEEDS_PATH.write_text(seeds.strip() + "\n", encoding="utf-8")
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/crawl-mode")
+async def save_crawl_mode(layered_crawl: Optional[str] = Form(None)):
+    cfg = load_config()
+    cfg["layered_crawl"] = layered_crawl == "on"
+    save_config(cfg)
     return RedirectResponse("/", status_code=303)
 
 
