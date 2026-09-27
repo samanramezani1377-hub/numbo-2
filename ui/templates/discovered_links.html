@@ -53,6 +53,7 @@
             <th class="p-3 text-right">دامنه مقصد</th>
             <th class="p-3 text-right">وضعیت کراول</th>
             <th class="p-3 text-right">زمان کشف</th>
+            <th class="p-3 text-right">وضعیت واقعی</th>
           </tr>
         </thead>
         <tbody>
@@ -71,9 +72,10 @@
               {% endif %}
             </td>
             <td class="p-3 text-xs text-gray-400">{{ row[4][:16] }}</td>
+            <td class="p-3 text-xs">{{ row[5] }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="5" class="p-8 text-center text-gray-400">هنوز لینک خارجی کشف نشده</td></tr>
+          <tr><td colspan="6" class="p-8 text-center text-gray-400">هنوز لینک خارجی کشف نشده</td></tr>
           {% endfor %}
         </tbody>
       </table>
