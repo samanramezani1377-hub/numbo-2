@@ -21,6 +21,7 @@ load_dotenv(BASE_DIR / ".env")
 from numbo.config import load as load_config, save as save_config  # noqa: E402
 from numbo.utils.phone import split_phones
 from numbo.qualification import qualify_record
+from numbo.frontier import CrawlHistory
 
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "numbo.db"
@@ -102,13 +103,19 @@ def group_contact_rows(raw_rows):
 
 
 def get_stats():
-    empty = {"total": 0, "phones": 0, "emails": 0, "wordpress": 0, "woocommerce": 0, "cities": 0}
+    empty = {
+        "total": 0, "phones": 0, "emails": 0, "wordpress": 0,
+        "woocommerce": 0, "cities": 0, "pages_crawled": 0,
+        "sites_crawled": 0, "urls_discovered": 0, "external_domains": 0,
+        "crawlable_urls": 0, "qualified_leads": 0, "failed_urls": 0,
+        "robots_blocked": 0,
+    }
     conn = get_db()
     if not conn:
         return empty
     try:
         rows = group_contact_rows(conn.execute("SELECT * FROM contacts").fetchall())
-        return {
+        stats = {
             "total": len(rows),
             "phones": sum(bool(r.get("phones")) for r in rows),
             "emails": sum(bool(r.get("emails")) for r in rows),
@@ -117,9 +124,17 @@ def get_stats():
             "cities": len({r.get("city") for r in rows if r.get("city")}),
         }
     except Exception:
-        return empty
+        stats = empty.copy()
     finally:
         conn.close()
+
+    history = CrawlHistory(DB_PATH)
+    try:
+        stats.update(history.crawl_stats())
+    finally:
+        history.close()
+    stats["qualified_leads"] = stats["total"]
+    return stats
 
 
 def read_seeds() -> str:
