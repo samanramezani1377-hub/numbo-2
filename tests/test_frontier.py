@@ -29,6 +29,29 @@ def test_failed_url_can_be_retried(tmp_path):
     history.close()
 
 
+def test_next_crawl_batch_retries_failed_urls_after_successful_urls(tmp_path):
+    db = tmp_path / "numbo.db"
+    history = CrawlHistory(db)
+    history.record_discovered_link(
+        "https://seed.ir", "https://seed.ir/new", "seed.ir", False, True
+    )
+    history.record_discovered_link(
+        "https://seed.ir", "https://seed.ir/failed", "seed.ir", False, True
+    )
+    history.reserve("https://seed.ir/failed", "seed.ir")
+    history.mark_failed("https://seed.ir/failed")
+
+    assert history.next_crawl_batch("seed.ir", limit=20) == [
+        "https://seed.ir/new",
+        "https://seed.ir/failed",
+    ]
+    history.reserve("https://seed.ir/new", "seed.ir")
+    assert history.next_crawl_batch("seed.ir", limit=20) == [
+        "https://seed.ir/failed",
+    ]
+    history.close()
+
+
 def test_external_allowed_tld_links_are_discovered(tmp_path):
     seeds = tmp_path / "seeds.txt"
     seeds.write_text("https://seed.ir\n", encoding="utf-8")
