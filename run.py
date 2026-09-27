@@ -52,8 +52,11 @@ signal.signal(signal.SIGTERM, handle_signal)
 def crawl_cycle(runner):
     while running:
         logger.info("=== Starting new crawl cycle ===")
+        cycle_cfg = load_config()
+        layered = bool(cycle_cfg.get("layered_crawl", False))
+        logger.info("Crawl mode: %s", "layered BFS" if layered else "normal")
         try:
-            yield runner.crawl("contact", seeds_file="seeds.txt")
+            yield runner.crawl("contact", seeds_file="seeds.txt", layered_crawl=layered)
             logger.info("Cycle finished successfully")
         except Exception as e:
             logger.error("Cycle error: %s", e)
