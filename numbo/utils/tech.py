@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 
 RULES: Dict[str, List[Tuple[str, float, str]]] = {
     "WordPress": [(r"wp-content", .95, "html"), (r"wp-includes", .95, "html"),
-                  (r"/wp-json/", .9, "html"), (r"api\\.w\\.org", .95, "html"),
+                  (r"/wp-json/", .9, "html"), (r"api\.w\.org", .95, "html"),
                   (r"wp-embed", .85, "html"), (r"wp-emoji", .7, "html"),
                   (r"wp-block", .65, "html"),
                   (r"<meta[^>]+name=['\\\"]generator['\\\"][^>]+content=['\\\"]wordpress", .95, "html"),
@@ -67,7 +67,7 @@ def detect_technologies(html: str = "", url: str = "", headers: dict = None) -> 
         specific_single = strong >= 1 and max(w for _, w, _ in hits) >= 0.9
         corroborated = len(hits) >= 2 or len(sources) >= 2
 
-        if (specific_single or corroborated) and confidence >= 0.35:
+        if (specific_single or corroborated) and (confidence >= 0.35 or specific_single):
             results.append({
                 "name": tech,
                 "confidence": round(confidence, 2),
