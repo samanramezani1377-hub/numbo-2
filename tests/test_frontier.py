@@ -20,11 +20,13 @@ def test_crawl_history_persists_and_deduplicates(tmp_path):
     second.close()
 
 
-def test_failed_url_can_be_retried(tmp_path):
+def test_failed_url_is_retried_only_after_next_cycle(tmp_path):
     db = tmp_path / "numbo.db"
     history = CrawlHistory(db)
     assert history.reserve("https://one.ir/page", "one.ir")
     history.mark_failed("https://one.ir/page")
+    assert not history.reserve("https://one.ir/page", "one.ir")
+    history.reset_failed_for_new_cycle()
     assert history.reserve("https://one.ir/page", "one.ir")
     history.close()
 
