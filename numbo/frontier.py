@@ -462,11 +462,11 @@ class CrawlHistory:
 
 
     def next_crawl_batch(self, domain, limit=20):
-        """Return the next crawlable batch for a domain.
+        """Return the next undiscovered/unqueued batch for a domain.
 
-        URLs with no crawl history are scheduled first. URLs that previously
-        failed are eligible again on a later continuous-run cycle. Queued or
-        successfully crawled URLs remain excluded, preserving deduplication.
+        Failed URLs are excluded during the current cycle. Failed history is
+        reset at the beginning of the next spider cycle, making those URLs
+        eligible again without creating an immediate retry loop.
         """
         rows = self.conn.execute(
             """SELECT d.target_url
@@ -474,10 +474,8 @@ class CrawlHistory:
                LEFT JOIN crawl_urls c ON c.url = d.target_url
                WHERE d.target_domain = ?
                  AND d.crawlable = 1
-                 AND (c.url IS NULL OR c.status = 'failed')
-               ORDER BY
-                 CASE WHEN c.status = 'failed' THEN 1 ELSE 0 END,
-                 d.first_seen ASC
+                 AND c.url IS NULL
+               ORDER BY d.first_seen ASC
                LIMIT ?""",
             (domain, max(int(limit), 1)),
         ).fetchall()
