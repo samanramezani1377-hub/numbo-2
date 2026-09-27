@@ -517,9 +517,9 @@ class ContactSpider(scrapy.Spider):
                 "Layered URL blocked by robots.txt; preserved BFS history seed=%s depth=%d url=%s hydrated=%d",
                 seed, depth, url, hydrated,
             )
-            self.frontier.mark_failed(url)
+            self.frontier.mark_failed(url, "robots.txt")
             return
-        self.frontier.mark_failed(url)
+        self.frontier.mark_failed(url, type(failure.value).__name__)
         if self.layered_crawl:
             self.frontier.mark_layered_failed(url)
         self.logger.warning("Page request failed: %s (%s)", url, failure.value)
