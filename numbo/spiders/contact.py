@@ -473,6 +473,8 @@ class ContactSpider(scrapy.Spider):
         state = self.site_pages.setdefault(domain, {"scheduled": set(), "count": 0, "batch_count": 0})
         state["scheduled"].discard(url)
         self.frontier.mark_failed(url)
+        if self.layered_crawl:
+            self.frontier.mark_layered_failed(url)
         self.logger.warning("Page request failed: %s (%s)", url, failure.value)
 
     def parse(self, response):
@@ -483,9 +485,13 @@ class ContactSpider(scrapy.Spider):
         state["scheduled"].discard(self._canonical_url(response.url))
         state["count"] += 1
         self.frontier.mark_crawled(requested_url)
+        if self.layered_crawl:
+            self.frontier.mark_layered_crawled(requested_url)
         final_url = self._canonical_url(response.url)
         if final_url != requested_url:
             self.frontier.mark_crawled(final_url)
+            if self.layered_crawl:
+                self.frontier.mark_layered_crawled(final_url)
 
         # Extract visible body text only. Script/style/noscript contents often contain
         # JSON configuration, prices, IDs and phone-like digit sequences that must
@@ -609,10 +615,18 @@ class ContactSpider(scrapy.Spider):
                 evidence=evidence,
             )
 
+        parent_seed = response.request.meta.get("numbo_seed")
+        parent_depth = int(response.request.meta.get("numbo_depth", 0) or 0)
+
         for full in self._links(response):
             path = urlparse(full).path.lower()
             priority = self._url_priority(full)
             target_domain = self._site_key(full)
+            child_depth = parent_depth + 1
+            if self.layered_crawl and parent_seed:
+                self.frontier.queue_layered_url(
+                    parent_seed, full, child_depth, source_url=response.url
+                )
             # A discovered link becomes crawlable when its target TLD is
             # allowed by the current configuration, even when it belongs
             # to a different domain. Disallowed links remain discovery-only.
@@ -631,9 +645,13 @@ class ContactSpider(scrapy.Spider):
             # an allowed external site can actually be fetched.
             if target_domain not in self.allowed_domains:
                 self.allowed_domains.append(target_domain)
-            request = self._request_page(full, priority=priority, meta={
-                "numbo_source": "external" if target_domain != domain else "internal"
-            })
+            request = self._request_page(
+                full,
+                priority=priority,
+                meta={"numbo_source": "external" if target_domain != domain else "internal"},
+                crawl_depth=child_depth if self.layered_crawl else None,
+                crawl_seed=parent_seed if self.layered_crawl else None,
+            )
             if request:
                 yield request
 
