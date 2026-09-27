@@ -234,6 +234,104 @@ class CrawlHistory:
         ).fetchall()
         return [(row[0], int(row[1])) for row in rows]
 
+    def mark_layered_crawled_for_seed(self, seed_url, url):
+        self._write(lambda: self.conn.execute(
+            "UPDATE layered_frontier SET status='crawled', crawled_at=? "
+            "WHERE seed_url=? AND url=? AND status IN ('pending','queued')",
+            (datetime.utcnow().isoformat(), seed_url, url),
+        ))
+
+    def expand_layered_from_history(self, seed_url, url, depth):
+        """Hydrate one already-crawled page from its durable discovery edges."""
+        child_depth = max(int(depth), 0) + 1
+        rows = self.conn.execute(
+            """SELECT target_url FROM discovered_links
+               WHERE source_url=? AND crawlable=1
+               ORDER BY first_seen ASC""",
+            (url,),
+        ).fetchall()
+        if not rows:
+            return 0
+
+        def write():
+            now = datetime.utcnow().isoformat()
+            for (target_url,) in rows:
+                global_crawled = self.conn.execute(
+                    "SELECT 1 FROM crawl_urls WHERE url=? AND status='crawled' LIMIT 1",
+                    (target_url,),
+                ).fetchone()
+                status = "crawled" if global_crawled else "pending"
+                self.conn.execute(
+                    """INSERT INTO layered_frontier
+                       (seed_url,url,depth,status,source_url,first_seen,crawled_at)
+                       VALUES (?,?,?,?,?,?,?)
+                       ON CONFLICT(seed_url,url) DO UPDATE SET
+                         depth=CASE WHEN excluded.depth < layered_frontier.depth
+                                    THEN excluded.depth ELSE layered_frontier.depth END,
+                         source_url=COALESCE(layered_frontier.source_url, excluded.source_url)""",
+                    (seed_url, target_url, child_depth, status, url, now,
+                     now if status == "crawled" else None),
+                )
+        self._write(write)
+        return len(rows)
+
+    def reconcile_layered_queue(self, seed_url, active_urls=None):
+        """Recover stale queued rows after Scrapy reaches an actual idle state."""
+        active_urls = set(active_urls or ())
+        rows = self.conn.execute(
+            "SELECT url FROM layered_frontier WHERE seed_url=? AND status='queued'",
+            (seed_url,),
+        ).fetchall()
+
+        def write():
+            now = datetime.utcnow().isoformat()
+            for (url,) in rows:
+                if url in active_urls:
+                    continue
+                global_status = self.conn.execute(
+                    "SELECT status FROM crawl_urls WHERE url=? LIMIT 1", (url,)
+                ).fetchone()
+                if global_status and global_status[0] == "crawled":
+                    self.conn.execute(
+                        "UPDATE layered_frontier SET status='crawled', crawled_at=? "
+                        "WHERE seed_url=? AND url=?",
+                        (now, seed_url, url),
+                    )
+                else:
+                    self.conn.execute(
+                        "UPDATE layered_frontier SET status='pending', crawled_at=NULL "
+                        "WHERE seed_url=? AND url=?",
+                        (seed_url, url),
+                    )
+        self._write(write)
+
+    def advance_layered_history(self, seed_url):
+        """Advance BFS through pages already crawled in persistent history."""
+        row = self.conn.execute(
+            """SELECT MIN(depth) FROM layered_frontier
+               WHERE seed_url=? AND status='crawled'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM layered_frontier f2
+                   WHERE f2.seed_url=layered_frontier.seed_url
+                     AND f2.status IN ('pending','queued')
+                     AND f2.depth <= layered_frontier.depth
+                 )""",
+            (seed_url,),
+        ).fetchone()
+        if not row or row[0] is None:
+            return 0
+        depth = int(row[0])
+        urls = self.conn.execute(
+            """SELECT url FROM layered_frontier
+               WHERE seed_url=? AND depth=? AND status='crawled'
+               ORDER BY first_seen ASC""",
+            (seed_url, depth),
+        ).fetchall()
+        total = 0
+        for (url,) in urls:
+            total += self.expand_layered_from_history(seed_url, url, depth)
+        return total
+
     def record_discovered_links(self, links):
         """Persist typed discovery edges in one transaction."""
         values = []
