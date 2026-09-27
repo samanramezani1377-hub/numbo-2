@@ -112,6 +112,8 @@ class ContactSpider(scrapy.Spider):
 
     def _links(self, response):
         seen = set()
+        discovered = []
+        source_domain = self._site_key(response.url)
         for href in response.css("a::attr(href)").getall():
             full = self._canonical_url(urljoin(response.url, href))
             parsed = urlparse(full)
@@ -119,18 +121,23 @@ class ContactSpider(scrapy.Spider):
                 continue
             if parsed.path.lower().endswith(self.SKIP_EXTENSIONS):
                 continue
-            if full not in seen:
-                seen.add(full)
-                target_domain = self._site_key(full)
-                source_domain = self._site_key(response.url)
-                self.frontier.record_discovered_link(
-                    response.url,
-                    full,
-                    target_domain,
-                    target_domain != source_domain,
-                    self.is_allowed_domain(target_domain),
-                )
-                yield full
+            if full in seen:
+                continue
+            seen.add(full)
+            target_domain = self._site_key(full)
+            discovered.append((
+                response.url,
+                full,
+                target_domain,
+                target_domain != source_domain,
+                self.is_allowed_domain(target_domain),
+            ))
+        # Persist the complete discovery set before scheduling any requests.
+        # One transaction per page replaces one transaction per link without
+        # changing which links are recorded or crawled.
+        self.frontier.record_discovered_links(discovered)
+        for _, full, _, _, _ in discovered:
+            yield full
 
     def _is_non_content_external(self, url):
         parsed = urlparse(url)
