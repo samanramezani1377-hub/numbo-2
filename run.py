@@ -22,14 +22,30 @@ from twisted.internet.task import deferLater
 
 from numbo.config import load as load_config
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("numbo.log", encoding="utf-8"),
-    ],
-)
+def _configure_logging():
+    """Configure runner logging once without duplicating handlers."""
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    # Keep exactly one stdout and one file handler even if the runner module
+    # is imported/reloaded by the hosting process.
+    if not any(getattr(h, "_numbo_stdout", False) for h in root.handlers):
+        stream = logging.StreamHandler(sys.stdout)
+        stream._numbo_stdout = True
+        stream.setFormatter(formatter)
+        root.addHandler(stream)
+
+    if not any(getattr(h, "_numbo_file", False) for h in root.handlers):
+        file_handler = logging.FileHandler("numbo.log", encoding="utf-8")
+        file_handler._numbo_file = True
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+
+    logging.getLogger("numbo-runner").propagate = True
+
+
+_configure_logging()
 logger = logging.getLogger("numbo-runner")
 
 cfg = load_config()
