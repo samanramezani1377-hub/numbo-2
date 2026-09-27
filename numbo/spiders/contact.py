@@ -253,9 +253,15 @@ class ContactSpider(scrapy.Spider):
                     ))
 
         self.frontier.record_discovered_links(discovered)
-        for _, full, _, _, crawlable, _ in discovered:
-            if crawlable:
-                yield full
+        # Preserve the crawler's existing contract: every navigational URL is
+        # yielded to Scrapy even when its TLD is disallowed. parse() then keeps
+        # it discovery-only. Resource URLs are recorded but never scheduled.
+        for _, full, _, _, _, link_type in discovered:
+            if link_type in self.RESOURCE_LINK_TYPES or link_type == "srcset":
+                continue
+            if urlparse(full).path.lower().endswith(self.SKIP_EXTENSIONS):
+                continue
+            yield full
 
     def _url_priority(self, url):
         """Prioritize useful content paths without excluding any discovered URL."""
