@@ -12,17 +12,9 @@ def test_layered_frontier_only_returns_lowest_depth(tmp_path):
     history.queue_layered_url(seed, "https://deep.example/", 2, source_url="https://a.example/")
 
     first = history.next_layered_batch(seed, limit=20)
-    assert {url for url, depth in first} == {
-        "https://seed.example/",
-        "https://a.example/",
-        "https://b.example/",
-        "https://c.example/",
-    }
-    assert {depth for _, depth in first} == {0}
-
-    for url, _ in first:
-        history.mark_layered_queued(seed, url)
-        history.mark_layered_crawled(url)
+    assert first == [(seed, 0)]
+    history.mark_layered_queued(seed, seed)
+    history.mark_layered_crawled(seed)
 
     second = history.next_layered_batch(seed, limit=20)
     assert second == [("https://a.example/", 1), ("https://b.example/", 1), ("https://c.example/", 1)]
