@@ -62,7 +62,10 @@ def test_discovery_finds_resources_jsonld_meta_and_plain_urls(tmp_path):
     assert "https://text.example.net/about" in by_url
     assert "https://redirect.example.net/next" in by_url
     assert "https://canonical.example.net/page" in by_url
-    assert discovered == []
+    assert "https://external.example.net/contact" in discovered
+    assert "https://canonical.example.net/page" in discovered
+    assert "https://assets.example.net/app.js" not in discovered
+    assert "https://embed.example.net/widget" not in discovered
 
 
 def test_robots_sitemap_is_discovered_without_bypassing_tld_rules(tmp_path):
