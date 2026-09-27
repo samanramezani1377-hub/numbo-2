@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import scrapy
 from scrapy import signals
 from scrapy.exceptions import DontCloseSpider
@@ -114,7 +115,10 @@ class ContactSpider(scrapy.Spider):
         seen = set()
         discovered = []
         source_domain = self._site_key(response.url)
-        for href in response.css("a::attr(href)").getall():
+        hrefs = list(response.css("a::attr(href)").getall())
+        hrefs.extend(response.css('link[rel~="canonical"]::attr(href)').getall())
+        hrefs.extend(response.css('link[rel~="alternate"][hreflang]::attr(href)').getall())
+        for href in hrefs:
             full = self._canonical_url(urljoin(response.url, href))
             parsed = urlparse(full)
             if parsed.scheme not in ("http", "https"):
@@ -319,14 +323,47 @@ class ContactSpider(scrapy.Spider):
         phones = sorted(set(phones + tel_phones))
 
         emails = extract_emails(text)
-        for href in response.css('a[href^="mailto:"]::attr(href)').getall():
+        mailto_hrefs = response.css('a[href^="mailto:"]::attr(href)').getall()
+        for href in mailto_hrefs:
             emails.extend(extract_emails(href[7:].split("?")[0]))
+
+        # JSON-LD commonly carries telephone/email without exposing it in visible text.
+        # Parse only structured-data contact fields to avoid false positives from scripts.
+        jsonld_contacts = []
+        for raw_json in response.css('script[type="application/ld+json"]::text').getall():
+            try:
+                data = json.loads(raw_json)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            stack = data if isinstance(data, list) else [data]
+            while stack:
+                node = stack.pop()
+                if isinstance(node, list):
+                    stack.extend(node)
+                    continue
+                if not isinstance(node, dict):
+                    continue
+                for key in ("telephone", "phone", "email"):
+                    value = node.get(key)
+                    if isinstance(value, str):
+                        jsonld_contacts.append((key, value))
+                for value in node.values():
+                    if isinstance(value, (dict, list)):
+                        stack.append(value)
+
+        for key, value in jsonld_contacts:
+            if key in ("telephone", "phone"):
+                phones.extend(extract_phones(value))
+            else:
+                emails.extend(extract_emails(value))
+        phones = sorted(set(phones))
         emails = sorted(set(emails))
 
         headers = {k.decode() if isinstance(k, bytes) else k:
                    v[0].decode() if isinstance(v[0], bytes) else v[0]
                    for k, v in response.headers.items()}
         technologies = detect_technologies(html=html, url=response.url, headers=headers)
+        self.frontier.record_technology_evidence(domain, response.url, technologies)
         city = detect_city(text)
         category = detect_category(text, domain)
         business = extract_business_name(response, domain)
