@@ -205,7 +205,9 @@ def test_layered_robots_block_recovers_from_persistent_discovery_history(tmp_pat
     spider.frontier.queue_layered_url(seed, child, 1, source_url=seed)
 
     request = Request(seed, meta={"numbo_seed": seed, "numbo_depth": 0})
-    spider.request_failed(Failure(IgnoreRequest("Forbidden by robots.txt")), request=request)
+    failure = Failure(IgnoreRequest("Forbidden by robots.txt"))
+    failure.request = request
+    spider.request_failed(failure)
 
     assert spider.frontier.next_layered_batch(seed, limit=20) == [(child, 1)]
     spider.frontier.close()
