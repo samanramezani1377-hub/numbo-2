@@ -127,7 +127,7 @@ class CrawlHistory:
                 "SELECT status FROM crawl_urls WHERE url = ?",
                 (url,),
             ).fetchone()
-            return bool(row and row[0] in {"failed", "retry_pending"})
+            return bool(row and row[0] == "retry_pending")
 
     def reserve_seed(self, url, domain, source_url=None):
         """Reserve an explicit seed for the current crawl cycle.
