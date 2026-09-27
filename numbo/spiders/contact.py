@@ -54,6 +54,9 @@ class ContactSpider(scrapy.Spider):
         self.site_pages = {}
         self._batch_no = 1
         self.frontier = CrawlHistory(frontier_db)
+        # Retry failures from previous cycles, but never loop on a failure
+        # during the same cycle.
+        self.frontier.reset_failed_for_new_cycle()
         self._layered_active = set()
         self.allowed_tlds = [t.lower().strip() for t in
                              (load_config().get("allowed_tlds") or []) if str(t).strip()]
