@@ -157,3 +157,34 @@ def test_explicit_seed_is_requeued_each_cycle(tmp_path):
     assert request.meta["numbo_source"] == "seed"
     assert spider.frontier.was_crawled("https://example.com/") is False
     spider.frontier.close()
+
+
+def test_layered_history_hydrates_deeper_links_without_refetching(tmp_path):
+    db = tmp_path / "numbo.db"
+    history = CrawlHistory(db)
+    history.record_discovered_link(
+        "https://seed.ir/level-1", "https://seed.ir/level-2",
+        "seed.ir", False, True, "anchor"
+    )
+    history.reserve("https://seed.ir/level-1", "seed.ir")
+    history.mark_crawled("https://seed.ir/level-1")
+    history.queue_layered_url("https://seed.ir/", "https://seed.ir/level-1", 1)
+    history.mark_layered_crawled_for_seed("https://seed.ir/", "https://seed.ir/level-1")
+
+    assert history.advance_layered_history("https://seed.ir/") == 1
+    assert history.next_layered_batch("https://seed.ir/", limit=20) == [
+        ("https://seed.ir/level-2", 2)
+    ]
+    history.close()
+
+
+def test_layered_frontier_can_reopen_stale_queued_url(tmp_path):
+    db = tmp_path / "numbo.db"
+    history = CrawlHistory(db)
+    history.queue_layered_url("https://seed.ir/", "https://seed.ir/page", 1)
+    history.mark_layered_queued("https://seed.ir/", "https://seed.ir/page")
+    history.reconcile_layered_queue("https://seed.ir/", active_urls=set())
+    assert history.next_layered_batch("https://seed.ir/", limit=20) == [
+        ("https://seed.ir/page", 1)
+    ]
+    history.close()
