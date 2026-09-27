@@ -42,6 +42,19 @@ class CrawlHistory:
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_target_domain ON discovered_links(target_domain)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_discovered_links_external ON discovered_links(external)")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS site_technology_evidence (
+                domain TEXT NOT NULL,
+                technology TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0,
+                evidence_count INTEGER NOT NULL DEFAULT 0,
+                source_url TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                PRIMARY KEY (domain, technology)
+            )
+        """)
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_site_technology_domain ON site_technology_evidence(domain)")
         self.conn.commit()
 
     def close(self):
@@ -143,6 +156,42 @@ class CrawlHistory:
                VALUES (?, ?, ?, ?, ?, ?)""",
             values,
         ))
+
+    def record_technology_evidence(self, domain, source_url, technologies):
+        """Persist technology evidence independently of lead qualification."""
+        if not technologies or not domain:
+            return
+        now = datetime.utcnow().isoformat()
+        values = []
+        for tech in technologies:
+            name = str(tech.get("name") or "").strip()
+            if not name:
+                continue
+            confidence = float(tech.get("confidence") or 0)
+            evidence_count = int(tech.get("evidence_count") or 0)
+            values.append((domain, name, confidence, evidence_count, source_url, now, now))
+        if not values:
+            return
+        def write():
+            self.conn.executemany(
+                """INSERT INTO site_technology_evidence
+                   (domain,technology,confidence,evidence_count,source_url,first_seen,last_seen)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(domain,technology) DO UPDATE SET
+                     confidence=MAX(site_technology_evidence.confidence, excluded.confidence),
+                     evidence_count=site_technology_evidence.evidence_count + excluded.evidence_count,
+                     last_seen=excluded.last_seen""",
+                values,
+            )
+        self._write(write)
+
+    def get_site_technologies(self, domain):
+        return self.conn.execute(
+            """SELECT technology, confidence, evidence_count, source_url
+               FROM site_technology_evidence WHERE domain=?
+               ORDER BY confidence DESC, technology ASC""",
+            (domain,),
+        ).fetchall()
 
     def record_discovered_link(self, source_url, target_url, target_domain, external, crawlable):
         self.record_discovered_links([
