@@ -7,7 +7,7 @@ RULES: Dict[str, List[Tuple[str, float, str]]] = {
                   (r"/wp-json/", .9, "html"), (r"api\\.w\\.org", .95, "html"),
                   (r"wp-embed", .85, "html"), (r"wp-emoji", .7, "html"),
                   (r"wp-block", .65, "html"),
-                  (r"<meta[^>]+name=["\\']generator["\\'][^>]+content=["\\']wordpress", .95, "html"),
+                  (r'<meta[^>]+name=["\\']generator["\\'][^>]+content=["\\']wordpress', .95, "html"),
                   (r"wordpress", .75, "html")],
     "WooCommerce": [(r"woocommerce", 1.0, "html"), (r"wc-block", .9, "html"),
                     (r"wc-add-to-cart", .95, "html"), (r"woocommerce-product", .9, "html"),
